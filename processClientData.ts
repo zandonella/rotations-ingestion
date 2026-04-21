@@ -8,6 +8,9 @@ import type {
     price,
 } from './lib/types.js';
 import { supabase } from './lib/supabase.ts';
+import discordAlert from './lib/discord.ts';
+import dotenv from 'dotenv';
+dotenv.config();
 
 // helpers
 function minDate(a: Date | null, b: Date | null): Date | null {
@@ -412,7 +415,8 @@ function getNextRefreshBeforeDefault(
 }
 
 async function scheduleNextRefresh(nextRefresh: Date) {
-    const res = await fetch('http://100.99.1.41:3000/schedule-wake', {
+    const WOL_IP = process.env.WOL_API_IP;
+    const res = await fetch(`http://${WOL_IP}:3000/schedule-wake`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
