@@ -13,5 +13,8 @@
         "@hasagi/core": "^0.6.9",
         "@supabase/supabase-js": "^2.90.1",
         "dotenv": "^17.2.3"
+    },
+    "devDependencies": {
+        "supabase": "^2.100.0"
     }
 }
