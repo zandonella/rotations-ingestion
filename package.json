@@ -4,7 +4,8 @@
     "description": "API to call locally with the league client open to get the mythic shop offerings and send data to web server",
     "main": "parse.js",
     "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "prod:process:static": "node --env-file=.env.prod processStaticData.ts",
+        "prod:process:client": "node --env-file=.env.prod processClientData.ts"
     },
     "type": "module",
     "author": "",
