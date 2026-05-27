@@ -169,7 +169,9 @@ function processSkins(ChampionDict: Map<string, number>): CatalogItemRecord[] {
     const skins: RawSkin[] = Object.values(skinJson);
 
     const reducedSkins: CatalogItemRecord[] = skins.flatMap((skin: RawSkin) => {
-        if (skin.isBase) {
+        const rawChromas = skin.chromas ?? [];
+        const hasChromas = rawChromas.length > 0;
+        if (skin.isBase && !hasChromas) {
             return [];
         }
 
@@ -213,8 +215,8 @@ function processSkins(ChampionDict: Map<string, number>): CatalogItemRecord[] {
 
         const chromas: CatalogItemRecord[] = [];
 
-        if (skin.chromas && skin.chromas.length > 0) {
-            for (const chroma of skin.chromas) {
+        if (hasChromas) {
+            for (const chroma of rawChromas) {
                 const chromaURL = createCDNImageUrl(chroma.tilePath);
                 if (!chromaURL) {
                     console.warn(
@@ -231,7 +233,9 @@ function processSkins(ChampionDict: Map<string, number>): CatalogItemRecord[] {
                     SkinlineID: skinlineId,
                     ImageURL: chromaURL,
                     ItemID: chroma.contentId,
-                    ParentItemID: baseSkin.ItemID,
+                    ParentItemID: skin.isBase
+                        ? chroma.contentId
+                        : baseSkin.ItemID,
                     SortSection: 1,
                 };
 
@@ -239,7 +243,7 @@ function processSkins(ChampionDict: Map<string, number>): CatalogItemRecord[] {
             }
         }
 
-        return [baseSkin, ...chromas];
+        return skin.isBase ? chromas : [baseSkin, ...chromas];
     });
 
     return reducedSkins;
