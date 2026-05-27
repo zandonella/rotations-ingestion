@@ -76,7 +76,6 @@ function filterCatalogSales(salesData: RawCatalogSale[]) {
     salesData = salesData.filter(
         (sale) => sale.inventoryType == 'CHAMPION_SKIN',
     );
-    // salesData = salesData.filter((sale) => sale.subInventoryType != 'RECOLOR');
     salesData = salesData.filter((sale) => !hasLimitedAvailabilityTag(sale));
     return salesData;
 }
@@ -267,62 +266,12 @@ function processMythicSales() {
 
 // upsert functions
 async function upsertCatalogSales(sales: CatalogSaleRecord[]) {
-    // const riotItemIds = [...new Set(sales.map((s) => s.RiotItemID))];
-
-    // const { data: existingItems, error: existingError } = await supabase
-    //     .from('CatalogItem')
-    //     .select('RiotItemID')
-    //     .in('RiotItemID', riotItemIds);
-
-    // if (existingError) {
-    //     console.error('Error fetching existing catalog items:', existingError);
-    //     return;
-    // }
-
-    // const existingIdSet = new Set(existingItems.map((item) => item.RiotItemID));
-
-    // const validSales = sales.filter((sale) =>
-    //     existingIdSet.has(sale.RiotItemID),
-    // );
-    // const skippedSales = sales.filter(
-    //     (sale) => !existingIdSet.has(sale.RiotItemID),
-    // );
-
-    // if (skippedSales.length > 0) {
-    //     console.warn(
-    //         'Skipping catalog sales with missing CatalogItem rows:',
-    //         skippedSales.map((s) => ({
-    //             RiotItemID: s.RiotItemID,
-    //             SaleStartAt: s.SaleStartAt,
-    //             SaleEndAt: s.SaleEndAt,
-    //             DiscountPercent: s.PercentOff,
-    //             ItemType: s.ItemType,
-    //         })),
-    //     );
-    // }
-
-    // if (validSales.length === 0) {
-    //     console.log('No valid catalog sales to upsert.');
-    //     return;
-    // }
-
-    const missingItemType = sales.filter((sale) => sale.ItemType === 0);
-    if (missingItemType.length > 0) {
-        console.warn(
-            'Found catalog sales with unknown item types:',
-            missingItemType.map((s) => ({
-                RiotItemID: s.RiotItemID,
-            })),
-        );
-    }
-
     const { error } = await supabase.from('CatalogSale').upsert(sales, {
         onConflict: 'RiotItemID,SaleStartAt,SaleEndAt',
     });
 
     if (error) {
         console.error('Error upserting catalog sales:', error);
-        console.log('Failed Items:', sales.slice(0, 1));
     } else {
         console.log('Catalog sales upserted successfully.');
     }
@@ -373,7 +322,6 @@ async function upsertMythicSales(sales: MythicSaleRecord[]) {
 
     if (error) {
         console.error('Error upserting mythic sales:', error);
-        console.log('Failed Items:', validSales);
     } else {
         console.log('Mythic sales upserted successfully.');
     }
