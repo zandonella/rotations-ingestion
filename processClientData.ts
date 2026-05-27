@@ -16,12 +16,36 @@ function minDate(a: Date | null, b: Date | null): Date | null {
     return a.getTime() < b.getTime() ? a : b;
 }
 
-function getPriceInfo(prices: price[]): price {
-    const price = prices.find((p) => p.cost != 0);
+function getPriceInfo(prices: price[], preferredCurrency?: string): price {
+    const nonZeroPrices = prices.filter((p) => p.cost != 0);
+    const price =
+        (preferredCurrency
+            ? nonZeroPrices.find((p) => p.currency === preferredCurrency)
+            : undefined) ??
+        nonZeroPrices.find((p) => p.currency === 'IP') ??
+        nonZeroPrices.find((p) => p.currency === 'RP') ??
+        nonZeroPrices[0];
     if (!price) {
         return { cost: 0, currency: 'UNKNOWN', discount: 0 };
     }
     return price;
+}
+
+function getCatalogPriceInfo(sale: RawCatalogSale) {
+    const salePriceInfo = sale.sale
+        ? getPriceInfo(sale.sale.prices)
+        : getPriceInfo(sale.prices);
+    const normalPriceInfo = getPriceInfo(sale.prices, salePriceInfo.currency);
+
+    return {
+        normalPrice:
+            normalPriceInfo.currency === salePriceInfo.currency
+                ? normalPriceInfo.cost
+                : salePriceInfo.cost,
+        salePrice: salePriceInfo.cost,
+        discount: sale.sale ? salePriceInfo.discount : 0,
+        currency: salePriceInfo.currency,
+    };
 }
 
 function getItemTypeByName(name: string) {
@@ -52,7 +76,7 @@ function filterCatalogSales(salesData: RawCatalogSale[]) {
     salesData = salesData.filter(
         (sale) => sale.inventoryType == 'CHAMPION_SKIN',
     );
-    salesData = salesData.filter((sale) => sale.subInventoryType != 'RECOLOR');
+    // salesData = salesData.filter((sale) => sale.subInventoryType != 'RECOLOR');
     salesData = salesData.filter((sale) => !hasLimitedAvailabilityTag(sale));
     return salesData;
 }
@@ -61,11 +85,7 @@ function getLimitedSales(salesData: RawCatalogSale[]) {
     salesData = salesData.filter((sale) => sale.inactiveDate != null);
     salesData = salesData.filter((sale) => hasLimitedAvailabilityTag(sale));
     salesData = salesData.filter(
-        (sale) =>
-            sale.inventoryType == 'CHAMPION_SKIN' ||
-            sale.inventoryType == 'SUMMONER_ICON' ||
-            sale.inventoryType == 'WARD_SKIN' ||
-            sale.inventoryType == 'EMOTE',
+        (sale) => sale.inventoryType == 'CHAMPION_SKIN',
     );
     salesData = salesData.filter((sale) => {
         const inactiveDate = new Date(sale.inactiveDate!);
@@ -82,12 +102,18 @@ function minimizeCatalogSale(sales: RawCatalogSale[]): CatalogSaleRecord[] {
     const minimizedSales = sales.map((sale) => {
         const rawStartDate = new Date(sale.sale!.startDate);
         const rawEndDate = new Date(sale.sale!.endDate);
+        const priceInfo = getCatalogPriceInfo(sale);
 
         const now = new Date();
         const isActive = rawStartDate <= now && rawEndDate > now;
 
-        const priceInfo = getPriceInfo(sale.prices);
-        const salePriceInfo = getPriceInfo(sale.sale!.prices);
+        let itemType;
+
+        if (sale.subInventoryType === 'RECOLOR') {
+            itemType = getItemTypeByName(sale.subInventoryType);
+        } else {
+            itemType = getItemTypeByName(sale.inventoryType);
+        }
 
         // rawStartDate.setHours(rawStartDate.getHours() + 6);
         // rawEndDate.setHours(rawEndDate.getHours() + 6);
@@ -95,10 +121,10 @@ function minimizeCatalogSale(sales: RawCatalogSale[]): CatalogSaleRecord[] {
             RiotItemID: sale.itemId,
             SaleStartAt: rawStartDate,
             SaleEndAt: rawEndDate,
-            ItemType: getItemTypeByName(sale.inventoryType),
-            NormalPrice: priceInfo.cost,
-            SalePrice: salePriceInfo.cost,
-            PercentOff: Math.round(salePriceInfo.discount * 100),
+            ItemType: itemType,
+            NormalPrice: priceInfo.normalPrice,
+            SalePrice: priceInfo.salePrice,
+            PercentOff: Math.round(priceInfo.discount * 100),
             Currency: priceInfo.currency,
             IsActive: isActive,
             Limited: false,
@@ -111,27 +137,17 @@ function minimizeLimitedSale(sales: RawCatalogSale[]): CatalogSaleRecord[] {
     const minimizedSales = sales.map((sale) => {
         const rawStartDate = new Date(sale.releaseDate);
         const rawEndDate = new Date(sale.inactiveDate!);
-        const priceInfo = getPriceInfo(sale.prices);
+        const priceInfo = getCatalogPriceInfo(sale);
 
         const now = new Date();
         const isActive = rawStartDate <= now && rawEndDate > now;
 
-        let salePrice;
-        let discount = 0;
         let itemType;
 
         if (sale.subInventoryType === 'RECOLOR') {
             itemType = getItemTypeByName(sale.subInventoryType);
         } else {
             itemType = getItemTypeByName(sale.inventoryType);
-        }
-
-        if (sale.sale) {
-            const salePriceInfo = getPriceInfo(sale.sale.prices);
-            salePrice = salePriceInfo.cost;
-            discount = salePriceInfo.discount;
-        } else {
-            salePrice = priceInfo.cost;
         }
 
         // rawStartDate.setHours(rawStartDate.getHours() + 6);
@@ -141,9 +157,9 @@ function minimizeLimitedSale(sales: RawCatalogSale[]): CatalogSaleRecord[] {
             SaleStartAt: rawStartDate,
             SaleEndAt: rawEndDate,
             ItemType: itemType,
-            NormalPrice: priceInfo.cost,
-            SalePrice: salePrice,
-            PercentOff: Math.round(discount * 100),
+            NormalPrice: priceInfo.normalPrice,
+            SalePrice: priceInfo.salePrice,
+            PercentOff: Math.round(priceInfo.discount * 100),
             Currency: priceInfo.currency,
             IsActive: isActive,
             Limited: true,
@@ -251,52 +267,62 @@ function processMythicSales() {
 
 // upsert functions
 async function upsertCatalogSales(sales: CatalogSaleRecord[]) {
-    const riotItemIds = [...new Set(sales.map((s) => s.RiotItemID))];
+    // const riotItemIds = [...new Set(sales.map((s) => s.RiotItemID))];
 
-    const { data: existingItems, error: existingError } = await supabase
-        .from('CatalogItem')
-        .select('RiotItemID')
-        .in('RiotItemID', riotItemIds);
+    // const { data: existingItems, error: existingError } = await supabase
+    //     .from('CatalogItem')
+    //     .select('RiotItemID')
+    //     .in('RiotItemID', riotItemIds);
 
-    if (existingError) {
-        console.error('Error fetching existing catalog items:', existingError);
-        return;
-    }
+    // if (existingError) {
+    //     console.error('Error fetching existing catalog items:', existingError);
+    //     return;
+    // }
 
-    const existingIdSet = new Set(existingItems.map((item) => item.RiotItemID));
+    // const existingIdSet = new Set(existingItems.map((item) => item.RiotItemID));
 
-    const validSales = sales.filter((sale) =>
-        existingIdSet.has(sale.RiotItemID),
-    );
-    const skippedSales = sales.filter(
-        (sale) => !existingIdSet.has(sale.RiotItemID),
-    );
+    // const validSales = sales.filter((sale) =>
+    //     existingIdSet.has(sale.RiotItemID),
+    // );
+    // const skippedSales = sales.filter(
+    //     (sale) => !existingIdSet.has(sale.RiotItemID),
+    // );
 
-    if (skippedSales.length > 0) {
+    // if (skippedSales.length > 0) {
+    //     console.warn(
+    //         'Skipping catalog sales with missing CatalogItem rows:',
+    //         skippedSales.map((s) => ({
+    //             RiotItemID: s.RiotItemID,
+    //             SaleStartAt: s.SaleStartAt,
+    //             SaleEndAt: s.SaleEndAt,
+    //             DiscountPercent: s.PercentOff,
+    //             ItemType: s.ItemType,
+    //         })),
+    //     );
+    // }
+
+    // if (validSales.length === 0) {
+    //     console.log('No valid catalog sales to upsert.');
+    //     return;
+    // }
+
+    const missingItemType = sales.filter((sale) => sale.ItemType === 0);
+    if (missingItemType.length > 0) {
         console.warn(
-            'Skipping catalog sales with missing CatalogItem rows:',
-            skippedSales.map((s) => ({
+            'Found catalog sales with unknown item types:',
+            missingItemType.map((s) => ({
                 RiotItemID: s.RiotItemID,
-                SaleStartAt: s.SaleStartAt,
-                SaleEndAt: s.SaleEndAt,
-                DiscountPercent: s.PercentOff,
-                ItemType: s.ItemType,
             })),
         );
     }
 
-    if (validSales.length === 0) {
-        console.log('No valid catalog sales to upsert.');
-        return;
-    }
-
-    const { error } = await supabase.from('CatalogSale').upsert(validSales, {
+    const { error } = await supabase.from('CatalogSale').upsert(sales, {
         onConflict: 'RiotItemID,SaleStartAt,SaleEndAt',
     });
 
     if (error) {
         console.error('Error upserting catalog sales:', error);
-        console.log('Failed Items:', validSales);
+        console.log('Failed Items:', sales.slice(0, 1));
     } else {
         console.log('Catalog sales upserted successfully.');
     }
