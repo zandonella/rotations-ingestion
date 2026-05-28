@@ -7,6 +7,7 @@ data/*
 champs
 tiles/*
 assets/*
+backups/
 
 
 # Logs
