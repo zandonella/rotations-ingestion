@@ -74,7 +74,12 @@ function hasLimitedAvailabilityTag(sale: RawCatalogSale) {
 function filterCatalogSales(salesData: RawCatalogSale[]) {
     salesData = salesData.filter((sale) => sale.sale != null);
     salesData = salesData.filter(
-        (sale) => sale.inventoryType == 'CHAMPION_SKIN',
+        (sale) =>
+            sale.inventoryType == 'CHAMPION_SKIN' ||
+            sale.inventoryType == 'EMOTE' ||
+            sale.inventoryType == 'SUMMONER_ICON' ||
+            sale.inventoryType == 'WARD_SKIN' ||
+            sale.subInventoryType == 'RECOLOR',
     );
     salesData = salesData.filter((sale) => !hasLimitedAvailabilityTag(sale));
     return salesData;
