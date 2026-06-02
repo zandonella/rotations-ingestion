@@ -19,6 +19,9 @@ import type {
     UniverseRecord,
 } from './lib/types.ts';
 import fs from 'fs';
+import { DiscordLogger } from './lib/discordLogger.ts';
+
+const logger = new DiscordLogger('processStaticData');
 
 const skinlineJsonData = fs.readFileSync('data/source/skinlines.json', 'utf8');
 const skinlines: RawSkinline[] = JSON.parse(skinlineJsonData);
@@ -180,6 +183,9 @@ function processSkins(ChampionDict: Map<string, number>): CatalogItemRecord[] {
             console.warn(
                 `Could not determine champion for skin: ${skin.name} (ID: ${skin.id})`,
             );
+            logger.warn(
+                `Could not determine champion for skin: ${skin.name} (ID: ${skin.id}).`,
+            );
             return [];
         }
 
@@ -188,6 +194,9 @@ function processSkins(ChampionDict: Map<string, number>): CatalogItemRecord[] {
             console.warn(
                 `Could not determine champion ID for skin: ${skin.name} (ID: ${skin.id})`,
             );
+            logger.warn(
+                `Could not determine champion ID for skin: ${skin.name} (ID: ${skin.id}).`,
+            );
             return [];
         }
 
@@ -195,6 +204,9 @@ function processSkins(ChampionDict: Map<string, number>): CatalogItemRecord[] {
         if (!baseImageUrl) {
             console.warn(
                 `Could not create image URL for skin: ${skin.name} (ID: ${skin.id})`,
+            );
+            logger.warn(
+                `Could not create image URL for skin: ${skin.name} (ID: ${skin.id}).`,
             );
             return [];
         }
@@ -221,6 +233,9 @@ function processSkins(ChampionDict: Map<string, number>): CatalogItemRecord[] {
                 if (!chromaURL) {
                     console.warn(
                         `Could not create image URL for chroma: ${chroma.id} of skin: ${skin.name} (ID: ${skin.id})`,
+                    );
+                    logger.warn(
+                        `Could not create image URL for chroma: ${chroma.id} of skin: ${skin.name} (ID: ${skin.id}).`,
                     );
                     continue;
                 }
@@ -258,6 +273,7 @@ async function upsertCatalogItems(items: CatalogItemRecord[]) {
 
     if (error) {
         console.error('Error inserting catalog items:', error);
+        await logger.error('Error inserting catalog items.');
     } else {
         console.log(`Inserted/Updated catalog items successfully.`);
     }
@@ -269,6 +285,7 @@ async function upsertChampionData(champions: ChampionRecord[]) {
         .upsert(champions, { onConflict: 'id' });
     if (error) {
         console.error('Error inserting champion data:', error);
+        await logger.error('Error inserting champion data.');
     } else {
         console.log(`Inserted/Updated champion data successfully.`);
     }
@@ -280,6 +297,7 @@ async function upsertUniverseData(universes: UniverseRecord[]) {
         .upsert(universes, { onConflict: 'id' });
     if (error) {
         console.error('Error inserting universe data:', error);
+        await logger.error('Error inserting universe data.');
     } else {
         console.log(`Inserted/Updated universe data successfully.`);
     }
@@ -291,6 +309,7 @@ async function upsertSkinlineData(skinlines: SkinlineRecord[]) {
         .upsert(skinlines, { onConflict: 'id' });
     if (error) {
         console.error('Error inserting skinline data:', error);
+        await logger.error('Error inserting skinline data.');
     } else {
         console.log(`Inserted/Updated skinline data successfully.`);
     }
@@ -324,4 +343,15 @@ async function main() {
     const processedWards = processWards();
     await upsertCatalogItems(processedWards);
 }
-main();
+main()
+    .then(async () => {
+        await logger.finish();
+    })
+    .catch(async (error: unknown) => {
+        console.error('Unexpected error during static data processing:', error);
+        await logger.error(
+            'Unexpected error during static data processing.',
+        );
+        await logger.finish();
+        process.exitCode = 1;
+    });

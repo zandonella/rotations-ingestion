@@ -62,9 +62,13 @@ Create a `.env` file in the project root:
 ```env
 SUPABASE_URL=http://127.0.0.1:54321
 SUPABASE_KEY=<local service_role key from npx supabase status>
+DISCORD_WEBHOOK_URL=<optional Discord webhook URL for processing alerts>
+DISCORD_MENTION_ROLE_ID=<optional Discord role ID to mention on warnings and errors>
 ```
 
 Use the local `service_role` key for development script runs because these scripts write and upsert Supabase data.
+`DISCORD_WEBHOOK_URL` enables one final Discord status message for each processing run, covering errors, warnings, or successful all-clear runs.
+`DISCORD_MENTION_ROLE_ID` pings a Discord role on warning and error messages, but not all-clear messages.
 
 When you are done with local development, stop Supabase:
 
@@ -122,6 +126,8 @@ bash serverScript.sh
 npm run prod:process:static
 npm run prod:process:client
 ```
+
+Add `DISCORD_WEBHOOK_URL` and `DISCORD_MENTION_ROLE_ID` to `.env.prod` as well if production processing should report to Discord.
 
 ## Related Projects
 

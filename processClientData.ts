@@ -8,6 +8,9 @@ import type {
     price,
 } from './lib/types.js';
 import { supabase } from './lib/supabase.ts';
+import { DiscordLogger } from './lib/discordLogger.ts';
+
+const logger = new DiscordLogger('processClientData');
 
 // helpers
 function minDate(a: Date | null, b: Date | null): Date | null {
@@ -277,6 +280,7 @@ async function upsertCatalogSales(sales: CatalogSaleRecord[]) {
 
     if (error) {
         console.error('Error upserting catalog sales:', error);
+        await logger.error('Error upserting catalog sales.');
     } else {
         console.log('Catalog sales upserted successfully.');
     }
@@ -292,6 +296,9 @@ async function upsertMythicSales(sales: MythicSaleRecord[]) {
 
     if (existingError) {
         console.error('Error fetching existing catalog items:', existingError);
+        await logger.error(
+            'Error fetching existing catalog items before MythicSale upsert.',
+        );
         return;
     }
 
@@ -305,14 +312,19 @@ async function upsertMythicSales(sales: MythicSaleRecord[]) {
     );
 
     if (skippedSales.length > 0) {
+        const skippedSaleDetails = skippedSales.map((s) => ({
+            OfferID: s.OfferID,
+            PrimaryItemID: s.PrimaryItemID,
+            Section: s.Section,
+            BundleType: s.BundleType,
+        }));
+
         console.warn(
             'Skipping mythic sales with missing CatalogItem rows:',
-            skippedSales.map((s) => ({
-                OfferID: s.OfferID,
-                PrimaryItemID: s.PrimaryItemID,
-                Section: s.Section,
-                BundleType: s.BundleType,
-            })),
+            skippedSaleDetails,
+        );
+        await logger.warn(
+            'Skipping mythic sales with missing CatalogItem rows.',
         );
     }
 
@@ -327,6 +339,7 @@ async function upsertMythicSales(sales: MythicSaleRecord[]) {
 
     if (error) {
         console.error('Error upserting mythic sales:', error);
+        await logger.error('Error upserting mythic sales.');
     } else {
         console.log('Mythic sales upserted successfully.');
     }
@@ -341,6 +354,7 @@ async function deactivateOldSales(table: 'CatalogSale' | 'MythicSale') {
 
     if (error) {
         console.error('Error deactivating old sales:', error);
+        await logger.error(`Error deactivating old sales in ${table}.`);
     } else {
         console.log('Old sales deactivated successfully.');
     }
@@ -434,4 +448,13 @@ async function main() {
     }
 }
 
-main();
+main()
+    .then(async () => {
+        await logger.finish();
+    })
+    .catch(async (error: unknown) => {
+        console.error('Unexpected error during client data processing:', error);
+        await logger.error('Unexpected error during client data processing.');
+        await logger.finish();
+        process.exitCode = 1;
+    });
