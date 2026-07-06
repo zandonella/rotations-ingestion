@@ -468,8 +468,9 @@ async function main() {
             process.exitCode = 1;
         }
     } else {
-        console.log('No upcoming sales found to schedule a refresh.');
-        await logger.warn('No upcoming sales found; no wake scheduled.');
+        // Normal case: no sale ends before the default 5pm PDT wake, so the
+        // Pi's systemd timer covers the next refresh on its own.
+        console.log('No upcoming sales found to schedule a refresh; default wake covers it.');
         heartbeatMessage = 'No wake scheduled; no upcoming sales.';
     }
 

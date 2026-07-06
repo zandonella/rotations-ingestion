@@ -135,8 +135,9 @@ export class DiscordLogger {
             return;
         }
 
+        // Only ping the role on ERROR; warnings stay quiet.
         const roleId = getMentionRoleId();
-        const mentionRoleId = roleId && level !== 'OK' ? roleId : undefined;
+        const mentionRoleId = roleId && level === 'ERROR' ? roleId : undefined;
         const content = mentionRoleId ? `<@&${mentionRoleId}>` : undefined;
 
         const response = await fetch(webhookUrl, {
