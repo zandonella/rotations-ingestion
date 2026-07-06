@@ -422,6 +422,21 @@ async function scheduleNextRefresh(nextRefresh: Date) {
     console.log(await res.json());
 }
 
+async function writeHeartbeat(nextExpectedAt: Date, message?: string) {
+    const { error } = await supabase.from('ingestion_heartbeat').upsert({
+        script_name: 'processClientData',
+        last_run_at: new Date().toISOString(),
+        next_expected_at: nextExpectedAt.toISOString(),
+        status: logger.hasErrors ? 'error' : logger.hasWarnings ? 'warn' : 'ok',
+        message: message ?? null,
+    });
+
+    if (error) {
+        console.error('Error writing ingestion heartbeat:', error);
+        await logger.warn('Failed to write ingestion heartbeat.');
+    }
+}
+
 // main function
 async function main() {
     const sales = dedupeSales(processCatalogSales());
@@ -441,11 +456,27 @@ async function main() {
     const nextRefresh = minDate(nextCatalogRefresh, nextMythicRefresh);
     console.log('Overall Next Refresh:', nextRefresh);
 
+    let heartbeatMessage: string | undefined;
+
     if (nextRefresh) {
-        await scheduleNextRefresh(nextRefresh);
+        try {
+            await scheduleNextRefresh(nextRefresh);
+        } catch (error) {
+            console.error('Error scheduling next refresh:', error);
+            await logger.error('Failed to schedule next wake-up.');
+            heartbeatMessage = 'Wake scheduling failed.';
+            process.exitCode = 1;
+        }
     } else {
         console.log('No upcoming sales found to schedule a refresh.');
+        await logger.warn('No upcoming sales found; no wake scheduled.');
+        heartbeatMessage = 'No wake scheduled; no upcoming sales.';
     }
+
+    await writeHeartbeat(
+        nextRefresh ?? getNextRefresh(new Date()),
+        heartbeatMessage,
+    );
 }
 
 main()

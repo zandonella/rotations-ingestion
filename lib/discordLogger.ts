@@ -46,6 +46,14 @@ export class DiscordLogger {
         return this.issues.length > 0;
     }
 
+    get hasErrors() {
+        return this.errorCount > 0;
+    }
+
+    get hasWarnings() {
+        return this.warningCount > 0;
+    }
+
     error(context: string) {
         this.errorCount += 1;
         this.recordIssue('ERROR', context);
