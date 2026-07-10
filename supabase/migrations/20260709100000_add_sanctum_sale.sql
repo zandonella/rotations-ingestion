@@ -1,4 +1,7 @@
-CREATE TABLE "public"."SanctumSale" (
+-- Written to be safely re-runnable: parts of this migration (the table and
+-- the WishlistEmailLog column) were applied to prod via the dashboard before
+-- this file was pushed.
+CREATE TABLE IF NOT EXISTS "public"."SanctumSale" (
     "RiotItemID" integer NOT NULL,
     "ItemType" smallint NOT NULL,
     "SaleID" uuid DEFAULT gen_random_uuid() NOT NULL UNIQUE,
@@ -16,6 +19,8 @@ CREATE TABLE "public"."SanctumSale" (
 ALTER TABLE "public"."SanctumSale" OWNER TO "postgres";
 ALTER TABLE "public"."SanctumSale" ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Enable read access for all users"
+    ON "public"."SanctumSale";
 CREATE POLICY "Enable read access for all users"
     ON "public"."SanctumSale"
     FOR SELECT
@@ -26,8 +31,10 @@ GRANT ALL ON TABLE "public"."SanctumSale" TO "authenticated";
 GRANT ALL ON TABLE "public"."SanctumSale" TO "service_role";
 
 ALTER TABLE "public"."WishlistEmailLog"
-    ADD COLUMN "SanctumSaleID" uuid;
+    ADD COLUMN IF NOT EXISTS "SanctumSaleID" uuid;
 
+ALTER TABLE ONLY "public"."WishlistEmailLog"
+    DROP CONSTRAINT IF EXISTS "WishlistEmailLog_SanctumSaleID_fkey";
 ALTER TABLE ONLY "public"."WishlistEmailLog"
     ADD CONSTRAINT "WishlistEmailLog_SanctumSaleID_fkey"
     FOREIGN KEY ("SanctumSaleID") REFERENCES "public"."SanctumSale"("SaleID");
