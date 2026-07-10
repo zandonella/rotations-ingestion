@@ -25,6 +25,40 @@ export function createCDNImageUrl(imagePath: string): string {
     return `${cdnBaseUrl}${cdnImagePath}`;
 }
 
+type SanctumBannerImageInput = {
+    bannerSkin: { id: number; name: string };
+    bannerBackgroundTexture?: string | null;
+};
+
+export function createSanctumBannerImageUrl(
+    banner: SanctumBannerImageInput,
+    itemType: number,
+): string | null {
+    const texture = banner.bannerBackgroundTexture;
+
+    if (texture && /\.(?:jpe?g|png)$/i.test(texture)) {
+        return createCDNImageUrl(texture);
+    }
+
+    if (itemType !== 1) return null;
+
+    const skinId = banner.bannerSkin.id;
+    const skinNameMatch = banner.bannerSkin.name.match(/^(.+)Skin(\d+)$/i);
+
+    if (skinNameMatch) {
+        const championSlug = skinNameMatch[1].toLowerCase();
+        const skinNumber = Number.parseInt(skinNameMatch[2], 10);
+        const splashPath = `/lol-game-data/assets/ASSETS/Characters/${championSlug}/Skins/Skin${skinNumber}/Images/${championSlug}_splash_uncentered_${skinNumber}.jpg`;
+
+        return createCDNImageUrl(splashPath);
+    }
+
+    const championId = Math.floor(skinId / 1000);
+    const splashPath = `/lol-game-data/assets/v1/champion-splashes/uncentered/${championId}/${skinId}.jpg`;
+
+    return createCDNImageUrl(splashPath);
+}
+
 // const testEmote =
 //     '/lol-game-data/assets/ASSETS/Loadouts/SummonerEmotes/TFT/StandardRewards/4422_The_Boss_Inventory.png';
 // const testTile =

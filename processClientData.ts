@@ -2,13 +2,16 @@ import fs from 'fs';
 import type {
     CatalogSaleRecord,
     MythicSaleRecord,
+    RawSanctumBanner,
     RawCatalogSale,
     RawMythicSale,
+    SanctumSaleRecord,
     sectionType,
     price,
 } from './lib/types.js';
 import { supabase } from './lib/supabase.ts';
 import { DiscordLogger } from './lib/discordLogger.ts';
+import { createSanctumBannerImageUrl } from './lib/images.ts';
 
 const logger = new DiscordLogger('processClientData');
 
@@ -272,6 +275,82 @@ function processMythicSales() {
     return minimizedSales;
 }
 
+async function processSanctumBanners(): Promise<SanctumSaleRecord[]> {
+    const bannersJsonData = fs.readFileSync(
+        'data/source/sanctumBanners.json',
+        'utf8',
+    );
+    const banners = JSON.parse(bannersJsonData) as RawSanctumBanner[];
+    const riotItemIds = [
+        ...new Set(banners.map((banner) => banner.bannerSkin.id)),
+    ];
+
+    const { data: catalogItems, error } = await supabase
+        .from('CatalogItem')
+        .select('RiotItemID, ItemType')
+        .in('RiotItemID', riotItemIds);
+
+    if (error) {
+        console.error('Error resolving Sanctum banner item types:', error);
+        await logger.error('Error resolving Sanctum banner item types.');
+        return [];
+    }
+
+    const itemTypesByRiotId = new Map<number, number[]>();
+    for (const item of catalogItems ?? []) {
+        const itemTypes = itemTypesByRiotId.get(item.RiotItemID) ?? [];
+        itemTypes.push(item.ItemType);
+        itemTypesByRiotId.set(item.RiotItemID, itemTypes);
+    }
+
+    const now = new Date();
+    const sales: SanctumSaleRecord[] = [];
+
+    for (const banner of banners) {
+        const riotItemId = banner.bannerSkin.id;
+        const matchingTypes = itemTypesByRiotId.get(riotItemId) ?? [];
+
+        if (matchingTypes.length === 0) {
+            console.warn(
+                `Skipping Sanctum banner ${riotItemId}: no matching CatalogItem row.`,
+            );
+            await logger.warn(
+                `Skipping Sanctum banner ${riotItemId}: no matching CatalogItem row.`,
+            );
+            continue;
+        }
+
+        const itemType = matchingTypes.includes(1) ? 1 : matchingTypes[0];
+        if (matchingTypes.length > 1) {
+            console.warn(
+                `Sanctum banner ${riotItemId} matched item types ${matchingTypes.join(', ')}; using ${itemType}.`,
+            );
+            await logger.warn(
+                `Sanctum banner ${riotItemId} matched multiple CatalogItem types; using ${itemType}.`,
+            );
+        }
+
+        const saleStartAt = new Date(banner.startDate * 1000);
+        const saleEndAt = new Date(banner.endDate * 1000);
+
+        sales.push({
+            RiotItemID: riotItemId,
+            ItemType: itemType,
+            SaleStartAt: saleStartAt,
+            SaleEndAt: saleEndAt,
+            Rarity:
+                banner.bannerSkin.rarity === 'kExalted'
+                    ? 'EXALTED'
+                    : 'MYTHIC_VARIANT',
+            ChasePityThreshold: banner.chasePityThreshold,
+            BannerImageURL: createSanctumBannerImageUrl(banner, itemType),
+            IsActive: saleStartAt <= now && now <= saleEndAt,
+        });
+    }
+
+    return sales;
+}
+
 // upsert functions
 async function upsertCatalogSales(sales: CatalogSaleRecord[]) {
     const { error } = await supabase.from('CatalogSale').upsert(sales, {
@@ -345,7 +424,27 @@ async function upsertMythicSales(sales: MythicSaleRecord[]) {
     }
 }
 
-async function deactivateOldSales(table: 'CatalogSale' | 'MythicSale') {
+async function upsertSanctumSales(sales: SanctumSaleRecord[]) {
+    if (sales.length === 0) {
+        console.log('No valid Sanctum sales to upsert.');
+        return;
+    }
+
+    const { error } = await supabase.from('SanctumSale').upsert(sales, {
+        onConflict: 'RiotItemID,SaleStartAt,SaleEndAt',
+    });
+
+    if (error) {
+        console.error('Error upserting Sanctum sales:', error);
+        await logger.error('Error upserting Sanctum sales.');
+    } else {
+        console.log('Sanctum sales upserted successfully.');
+    }
+}
+
+async function deactivateOldSales(
+    table: 'CatalogSale' | 'MythicSale' | 'SanctumSale',
+) {
     const now = new Date().toISOString();
     const { error } = await supabase
         .from(table)
@@ -372,9 +471,7 @@ function getNextRefresh(from: Date) {
     return next;
 }
 
-function getNextRefreshBeforeDefault(
-    sales: CatalogSaleRecord[] | MythicSaleRecord[],
-) {
+function getNextRefreshBeforeDefault(saleTimes: Date[]) {
     const now = new Date();
 
     const currentDayUTCMidnight = getUTCMidnight(now);
@@ -387,16 +484,15 @@ function getNextRefreshBeforeDefault(
 
     let earliest: Date | null = null;
 
-    for (const sale of sales) {
-        const saleEnd = sale.SaleEndAt;
-        const time = saleEnd.getTime();
+    for (const saleTime of saleTimes) {
+        const time = saleTime.getTime();
 
         if (
             time > currentDayUTCMidnight.getTime() &&
             time < nextDefaultRefresh.getTime()
         ) {
             if (!earliest || time < earliest.getTime()) {
-                earliest = saleEnd;
+                earliest = saleTime;
             }
         }
     }
@@ -447,13 +543,30 @@ async function main() {
     await upsertMythicSales(mythicSales);
     await deactivateOldSales('MythicSale');
 
-    const nextCatalogRefresh = getNextRefreshBeforeDefault(sales);
-    const nextMythicRefresh = getNextRefreshBeforeDefault(mythicSales);
+    const sanctumSales = await processSanctumBanners();
+    await upsertSanctumSales(sanctumSales);
+    await deactivateOldSales('SanctumSale');
+
+    const nextCatalogRefresh = getNextRefreshBeforeDefault(
+        sales.map((sale) => sale.SaleEndAt),
+    );
+    const nextMythicRefresh = getNextRefreshBeforeDefault(
+        mythicSales.map((sale) => sale.SaleEndAt),
+    );
+    // Banner starts matter too: a banner upserted before it opens is inactive
+    // until the run after SaleStartAt flips it.
+    const nextSanctumRefresh = getNextRefreshBeforeDefault(
+        sanctumSales.flatMap((sale) => [sale.SaleStartAt, sale.SaleEndAt]),
+    );
 
     console.log('Next Catalog Refresh:', nextCatalogRefresh);
     console.log('Next Mythic Refresh:', nextMythicRefresh);
+    console.log('Next Sanctum Refresh:', nextSanctumRefresh);
 
-    const nextRefresh = minDate(nextCatalogRefresh, nextMythicRefresh);
+    const nextRefresh = minDate(
+        minDate(nextCatalogRefresh, nextMythicRefresh),
+        nextSanctumRefresh,
+    );
     console.log('Overall Next Refresh:', nextRefresh);
 
     let heartbeatMessage: string | undefined;

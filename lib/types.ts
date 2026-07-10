@@ -98,6 +98,19 @@ export type RawMythicSale = {
     };
 };
 
+export type RawSanctumBanner = {
+    bannerSkin: {
+        id: number;
+        name: string;
+        rarity: 'kExalted' | 'kMythic';
+    };
+    startDate: number;
+    endDate: number;
+    chasePityThreshold: number;
+    highlightPityThreshold: number;
+    bannerBackgroundTexture?: string | null;
+};
+
 export type RawIcon = {
     id: number;
     contentId: string;
@@ -161,6 +174,17 @@ export type MythicSaleRecord = {
     IsBundle: boolean;
     IncludedItems: string[];
     BundleType: string | null;
+};
+
+export type SanctumSaleRecord = {
+    RiotItemID: number;
+    ItemType: number;
+    SaleStartAt: Date;
+    SaleEndAt: Date;
+    Rarity: 'EXALTED' | 'MYTHIC_VARIANT';
+    ChasePityThreshold: number;
+    BannerImageURL: string | null;
+    IsActive: boolean;
 };
 
 export type ChampionRecord = {
