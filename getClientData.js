@@ -86,3 +86,15 @@ try {
 } catch (error) {
     console.error('Error saving catalog data:', error);
 }
+
+try {
+    const sanctumJSON = await client.request('get', '/lol-sanctum/v1/banners');
+    fs.writeFileSync(
+        './data/source/sanctumBanners.json',
+        JSON.stringify(sanctumJSON, null, 4),
+        'utf8',
+    );
+    console.log('Sanctum banner data saved to sanctumBanners.json');
+} catch (error) {
+    console.error('Error fetching Sanctum banner data:', error);
+}
