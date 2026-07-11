@@ -77,6 +77,29 @@ function hasLimitedAvailabilityTag(sale: RawCatalogSale) {
     );
 }
 
+function isLimitedSale(sale: RawCatalogSale) {
+    if (hasLimitedAvailabilityTag(sale)) return true;
+    if (sale.inventoryType !== 'CHAMPION_SKIN' || sale.inactiveDate == null) {
+        return false;
+    }
+    const inactiveDate = new Date(sale.inactiveDate);
+    const releaseDate = new Date(sale.releaseDate);
+    const now = new Date();
+    const sixMonthsFromNow = new Date();
+    sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    // Riot's "limited" tags are unreliable (some limited skins lack them).
+    // Permanent items use sentinel inactiveDates (2999+); a near-future
+    // inactiveDate plus a recent releaseDate (reset on re-release, which
+    // rules out skins being vaulted) marks a limited-availability sale.
+    return (
+        inactiveDate > now &&
+        inactiveDate < sixMonthsFromNow &&
+        releaseDate > sixMonthsAgo
+    );
+}
+
 function filterCatalogSales(salesData: RawCatalogSale[]) {
     salesData = salesData.filter((sale) => sale.sale != null);
     salesData = salesData.filter(
@@ -87,13 +110,13 @@ function filterCatalogSales(salesData: RawCatalogSale[]) {
             sale.inventoryType == 'WARD_SKIN' ||
             sale.subInventoryType == 'RECOLOR',
     );
-    salesData = salesData.filter((sale) => !hasLimitedAvailabilityTag(sale));
+    salesData = salesData.filter((sale) => !isLimitedSale(sale));
     return salesData;
 }
 
 function getLimitedSales(salesData: RawCatalogSale[]) {
     salesData = salesData.filter((sale) => sale.inactiveDate != null);
-    salesData = salesData.filter((sale) => hasLimitedAvailabilityTag(sale));
+    salesData = salesData.filter((sale) => isLimitedSale(sale));
     salesData = salesData.filter(
         (sale) => sale.inventoryType == 'CHAMPION_SKIN',
     );
