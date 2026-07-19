@@ -12,6 +12,7 @@ import type {
 import { supabase } from './lib/supabase.ts';
 import { DiscordLogger } from './lib/discordLogger.ts';
 import { createSanctumBannerImageUrl } from './lib/images.ts';
+import { dedupeCatalogSales } from './lib/catalogSales.ts';
 
 const logger = new DiscordLogger('processClientData');
 
@@ -201,18 +202,6 @@ function minimizeLimitedSale(sales: RawCatalogSale[]): CatalogSaleRecord[] {
     return minimizedSales;
 }
 
-function dedupeSales(sales: CatalogSaleRecord[]) {
-    const map = new Map<string, CatalogSaleRecord>();
-
-    for (const sale of sales) {
-        const key = `${sale.RiotItemID}-${sale.SaleStartAt.toISOString()}-${sale.SaleEndAt.toISOString()}`;
-        if (!map.has(key)) {
-            map.set(key, sale);
-        }
-    }
-    return Array.from(map.values());
-}
-
 function getPrimaryPurchaseUnit(entry: RawMythicSale['catalogEntries'][0]) {
     // find first unit with payment options
     const unitWithPayment = entry.purchaseUnits.find(
@@ -377,7 +366,7 @@ async function processSanctumBanners(): Promise<SanctumSaleRecord[]> {
 // upsert functions
 async function upsertCatalogSales(sales: CatalogSaleRecord[]) {
     const { error } = await supabase.from('CatalogSale').upsert(sales, {
-        onConflict: 'RiotItemID,SaleStartAt,SaleEndAt',
+        onConflict: 'ItemType,RiotItemID,SaleStartAt',
     });
 
     if (error) {
@@ -558,7 +547,7 @@ async function writeHeartbeat(nextExpectedAt: Date, message?: string) {
 
 // main function
 async function main() {
-    const sales = dedupeSales(processCatalogSales());
+    const sales = dedupeCatalogSales(processCatalogSales());
     await upsertCatalogSales(sales);
     await deactivateOldSales('CatalogSale');
 
