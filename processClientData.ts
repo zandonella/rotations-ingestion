@@ -6,6 +6,7 @@ import type {
     RawCatalogSale,
     RawMythicSale,
     SanctumSaleRecord,
+    YourShopSaleRecord,
     sectionType,
     price,
 } from './lib/types.js';
@@ -13,6 +14,10 @@ import { supabase } from './lib/supabase.ts';
 import { DiscordLogger } from './lib/discordLogger.ts';
 import { createSanctumBannerImageUrl } from './lib/images.ts';
 import { dedupeCatalogSales } from './lib/catalogSales.ts';
+import {
+    isActiveYourShopStatus,
+    minimizeYourShopStatus,
+} from './lib/yourShop.ts';
 
 const logger = new DiscordLogger('processClientData');
 
@@ -363,6 +368,32 @@ async function processSanctumBanners(): Promise<SanctumSaleRecord[]> {
     return sales;
 }
 
+function processYourShopStatus():
+    | { kind: 'fetched'; sale: YourShopSaleRecord | null }
+    | { kind: 'failed' } {
+    const statusJsonData = fs.readFileSync(
+        'data/source/yourShopStatus.json',
+        'utf8',
+    );
+    const status = JSON.parse(statusJsonData) as unknown;
+
+    if (
+        typeof status === 'object' &&
+        status !== null &&
+        'fetchSucceeded' in status &&
+        status.fetchSucceeded === false
+    ) {
+        return { kind: 'failed' };
+    }
+
+    return {
+        kind: 'fetched',
+        sale: isActiveYourShopStatus(status)
+            ? minimizeYourShopStatus(status)
+            : null,
+    };
+}
+
 // upsert functions
 async function upsertCatalogSales(sales: CatalogSaleRecord[]) {
     const { error } = await supabase.from('CatalogSale').upsert(sales, {
@@ -451,6 +482,41 @@ async function upsertSanctumSales(sales: SanctumSaleRecord[]) {
         await logger.error('Error upserting Sanctum sales.');
     } else {
         console.log('Sanctum sales upserted successfully.');
+    }
+}
+
+async function syncYourShopSale(sale: YourShopSaleRecord | null) {
+    const deactivateQuery = supabase
+        .from('YourShopSale')
+        .update({ IsActive: false })
+        .eq('IsActive', true);
+    const { error: deactivateError } = sale
+        ? await deactivateQuery.neq('ShopName', sale.ShopName)
+        : await deactivateQuery;
+
+    if (deactivateError) {
+        console.error(
+            'Error deactivating previous Your Shops:',
+            deactivateError,
+        );
+        await logger.error('Error deactivating previous Your Shops.');
+        return;
+    }
+
+    if (!sale) {
+        console.log('No active Your Shop reported by the League client.');
+        return;
+    }
+
+    const { error } = await supabase.from('YourShopSale').upsert(sale, {
+        onConflict: 'ShopName',
+    });
+
+    if (error) {
+        console.error('Error upserting Your Shop:', error);
+        await logger.error('Error upserting Your Shop.');
+    } else {
+        console.log('Your Shop upserted successfully.');
     }
 }
 
@@ -559,6 +625,18 @@ async function main() {
     await upsertSanctumSales(sanctumSales);
     await deactivateOldSales('SanctumSale');
 
+    const yourShopStatus = processYourShopStatus();
+    if (yourShopStatus.kind === 'failed') {
+        console.warn(
+            'Skipping Your Shop sync because the client request failed.',
+        );
+        await logger.warn(
+            'Skipped Your Shop sync because the client request failed.',
+        );
+    } else {
+        await syncYourShopSale(yourShopStatus.sale);
+    }
+
     const nextCatalogRefresh = getNextRefreshBeforeDefault(
         sales.map((sale) => sale.SaleEndAt),
     );
@@ -570,14 +648,20 @@ async function main() {
     const nextSanctumRefresh = getNextRefreshBeforeDefault(
         sanctumSales.flatMap((sale) => [sale.SaleStartAt, sale.SaleEndAt]),
     );
+    const nextYourShopRefresh = getNextRefreshBeforeDefault(
+        yourShopStatus.kind === 'fetched' && yourShopStatus.sale
+            ? [yourShopStatus.sale.SaleEndAt]
+            : [],
+    );
 
     console.log('Next Catalog Refresh:', nextCatalogRefresh);
     console.log('Next Mythic Refresh:', nextMythicRefresh);
     console.log('Next Sanctum Refresh:', nextSanctumRefresh);
+    console.log('Next Your Shop Refresh:', nextYourShopRefresh);
 
     const nextRefresh = minDate(
         minDate(nextCatalogRefresh, nextMythicRefresh),
-        nextSanctumRefresh,
+        minDate(nextSanctumRefresh, nextYourShopRefresh),
     );
     console.log('Overall Next Refresh:', nextRefresh);
 
@@ -595,7 +679,9 @@ async function main() {
     } else {
         // Normal case: no sale ends before the default 5pm PDT wake, so the
         // Pi's systemd timer covers the next refresh on its own.
-        console.log('No upcoming sales found to schedule a refresh; default wake covers it.');
+        console.log(
+            'No upcoming sales found to schedule a refresh; default wake covers it.',
+        );
         heartbeatMessage = 'No wake scheduled; no upcoming sales.';
     }
 

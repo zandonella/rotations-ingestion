@@ -111,6 +111,13 @@ export type RawSanctumBanner = {
     bannerBackgroundTexture?: string | null;
 };
 
+export type RawYourShopStatus = {
+    endTime: string;
+    hubEnabled: boolean;
+    name: string;
+    startTime: string;
+};
+
 export type RawIcon = {
     id: number;
     contentId: string;
@@ -184,6 +191,14 @@ export type SanctumSaleRecord = {
     Rarity: 'EXALTED' | 'MYTHIC_VARIANT';
     ChasePityThreshold: number;
     BannerImageURL: string | null;
+    IsActive: boolean;
+};
+
+export type YourShopSaleRecord = {
+    ShopName: string;
+    SaleStartAt: Date;
+    SaleEndAt: Date;
+    HubEnabled: boolean;
     IsActive: boolean;
 };
 

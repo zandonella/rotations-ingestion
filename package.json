@@ -6,7 +6,7 @@
     "scripts": {
         "prod:process:static": "node --env-file=.env.prod processStaticData.ts",
         "prod:process:client": "node --env-file=.env.prod processClientData.ts",
-        "test": "node tests/catalogSales.test.ts"
+        "test": "node tests/catalogSales.test.ts && node tests/yourShop.test.ts"
     },
     "type": "module",
     "author": "",

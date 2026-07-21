@@ -98,3 +98,23 @@ try {
 } catch (error) {
     console.error('Error fetching Sanctum banner data:', error);
 }
+
+try {
+    const yourShopStatus = await client.request(
+        'get',
+        '/lol-yourshop/v1/status',
+    );
+    fs.writeFileSync(
+        './data/source/yourShopStatus.json',
+        JSON.stringify(yourShopStatus, null, 4),
+        'utf8',
+    );
+    console.log('Your Shop status saved to yourShopStatus.json');
+} catch (error) {
+    fs.writeFileSync(
+        './data/source/yourShopStatus.json',
+        JSON.stringify({ fetchSucceeded: false }, null, 4),
+        'utf8',
+    );
+    console.error('Error fetching Your Shop status:', error);
+}
