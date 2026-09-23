@@ -153,17 +153,19 @@ function processEmotes(): CatalogItemRecord[] {
     const jsonData = fs.readFileSync('data/source/emotes.json', 'utf8');
     const emoteJson: RawEmote[] = JSON.parse(jsonData);
 
-    const emotes: CatalogItemRecord[] = emoteJson.map((emote) => ({
-        ItemType: 3,
-        RiotItemID: emote.id,
-        Name: emote.name,
-        ChampionID: null,
-        SkinlineID: null,
-        ImageURL: createCDNImageUrl(emote.inventoryIcon),
-        ItemID: emote.contentId,
-        ParentItemID: emote.contentId,
-        SortSection: 3,
-    }));
+    const emotes: CatalogItemRecord[] = emoteJson
+        .filter((emote) => emote.name.trim().length > 0)
+        .map((emote) => ({
+            ItemType: 3,
+            RiotItemID: emote.id,
+            Name: emote.name,
+            ChampionID: null,
+            SkinlineID: null,
+            ImageURL: createCDNImageUrl(emote.inventoryIcon),
+            ItemID: emote.contentId,
+            ParentItemID: emote.contentId,
+            SortSection: 3,
+        }));
     return emotes;
 }
 
