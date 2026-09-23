@@ -19,6 +19,7 @@ import type {
     UniverseRecord,
 } from './lib/types.ts';
 import fs from 'fs';
+import { refreshPublicApi } from './lib/refreshPublicApi.ts';
 import { DiscordLogger } from './lib/discordLogger.ts';
 
 const logger = new DiscordLogger('processStaticData');
@@ -373,6 +374,8 @@ async function main() {
 
     const processedWards = processWards();
     await upsertCatalogItems(processedWards, 'wards');
+
+    await refreshPublicApi(logger);
 }
 main()
     .then(async () => {

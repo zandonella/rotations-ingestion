@@ -14,6 +14,7 @@ import { supabase } from './lib/supabase.ts';
 import { DiscordLogger } from './lib/discordLogger.ts';
 import { createSanctumBannerImageUrl } from './lib/images.ts';
 import { dedupeCatalogSales } from './lib/catalogSales.ts';
+import { refreshPublicApi } from './lib/refreshPublicApi.ts';
 import {
     isActiveYourShopStatus,
     minimizeYourShopStatus,
@@ -292,12 +293,16 @@ function processMythicSales() {
     return minimizedSales;
 }
 
-async function processSanctumBanners(): Promise<SanctumSaleRecord[]> {
+async function processSanctumBanners(): Promise<{
+    sales: SanctumSaleRecord[];
+    success: boolean;
+}> {
     const bannersJsonData = fs.readFileSync(
         'data/source/sanctumBanners.json',
         'utf8',
     );
     const banners = JSON.parse(bannersJsonData) as RawSanctumBanner[];
+    if (banners.length === 0) return { sales: [], success: true };
     const riotItemIds = [
         ...new Set(banners.map((banner) => banner.bannerSkin.id)),
     ];
@@ -310,7 +315,7 @@ async function processSanctumBanners(): Promise<SanctumSaleRecord[]> {
     if (error) {
         console.error('Error resolving Sanctum banner item types:', error);
         await logger.error('Error resolving Sanctum banner item types.');
-        return [];
+        return { sales: [], success: false };
     }
 
     const itemTypesByRiotId = new Map<number, number[]>();
@@ -322,12 +327,14 @@ async function processSanctumBanners(): Promise<SanctumSaleRecord[]> {
 
     const now = new Date();
     const sales: SanctumSaleRecord[] = [];
+    let success = true;
 
     for (const banner of banners) {
         const riotItemId = banner.bannerSkin.id;
         const matchingTypes = itemTypesByRiotId.get(riotItemId) ?? [];
 
         if (matchingTypes.length === 0) {
+            success = false;
             console.warn(
                 `Skipping Sanctum banner ${riotItemId}: no matching CatalogItem row.`,
             );
@@ -365,7 +372,7 @@ async function processSanctumBanners(): Promise<SanctumSaleRecord[]> {
         });
     }
 
-    return sales;
+    return { sales, success };
 }
 
 function processYourShopStatus():
@@ -396,6 +403,7 @@ function processYourShopStatus():
 
 // upsert functions
 async function upsertCatalogSales(sales: CatalogSaleRecord[]) {
+    if (sales.length === 0) return true;
     const { error } = await supabase.from('CatalogSale').upsert(sales, {
         onConflict: 'ItemType,RiotItemID,SaleStartAt',
     });
@@ -406,9 +414,11 @@ async function upsertCatalogSales(sales: CatalogSaleRecord[]) {
     } else {
         console.log('Catalog sales upserted successfully.');
     }
+    return !error;
 }
 
 async function upsertMythicSales(sales: MythicSaleRecord[]) {
+    if (sales.length === 0) return true;
     const primaryIds = [...new Set(sales.map((s) => s.PrimaryItemID))];
 
     const { data: existingItems, error: existingError } = await supabase
@@ -421,7 +431,7 @@ async function upsertMythicSales(sales: MythicSaleRecord[]) {
         await logger.error(
             'Error fetching existing catalog items before MythicSale upsert.',
         );
-        return;
+        return false;
     }
 
     const existingIdSet = new Set(existingItems.map((item) => item.ItemID));
@@ -452,7 +462,7 @@ async function upsertMythicSales(sales: MythicSaleRecord[]) {
 
     if (validSales.length === 0) {
         console.log('No valid mythic sales to upsert.');
-        return;
+        return false;
     }
 
     const { error } = await supabase.from('MythicSale').upsert(validSales, {
@@ -465,12 +475,13 @@ async function upsertMythicSales(sales: MythicSaleRecord[]) {
     } else {
         console.log('Mythic sales upserted successfully.');
     }
+    return !error && skippedSales.length === 0;
 }
 
 async function upsertSanctumSales(sales: SanctumSaleRecord[]) {
     if (sales.length === 0) {
         console.log('No valid Sanctum sales to upsert.');
-        return;
+        return true;
     }
 
     const { error } = await supabase.from('SanctumSale').upsert(sales, {
@@ -483,6 +494,7 @@ async function upsertSanctumSales(sales: SanctumSaleRecord[]) {
     } else {
         console.log('Sanctum sales upserted successfully.');
     }
+    return !error;
 }
 
 async function syncYourShopSale(sale: YourShopSaleRecord | null) {
@@ -500,12 +512,12 @@ async function syncYourShopSale(sale: YourShopSaleRecord | null) {
             deactivateError,
         );
         await logger.error('Error deactivating previous Your Shops.');
-        return;
+        return false;
     }
 
     if (!sale) {
         console.log('No active Your Shop reported by the League client.');
-        return;
+        return true;
     }
 
     const { error } = await supabase.from('YourShopSale').upsert(sale, {
@@ -518,6 +530,7 @@ async function syncYourShopSale(sale: YourShopSaleRecord | null) {
     } else {
         console.log('Your Shop upserted successfully.');
     }
+    return !error;
 }
 
 async function deactivateOldSales(
@@ -535,6 +548,7 @@ async function deactivateOldSales(
     } else {
         console.log('Old sales deactivated successfully.');
     }
+    return !error;
 }
 
 function getUTCMidnight(date: Date) {
@@ -614,18 +628,20 @@ async function writeHeartbeat(nextExpectedAt: Date, message?: string) {
 // main function
 async function main() {
     const sales = dedupeCatalogSales(processCatalogSales());
-    await upsertCatalogSales(sales);
-    await deactivateOldSales('CatalogSale');
+    const catalogSaved = await upsertCatalogSales(sales);
+    const catalogExpired = await deactivateOldSales('CatalogSale');
 
     const mythicSales = processMythicSales();
-    await upsertMythicSales(mythicSales);
-    await deactivateOldSales('MythicSale');
+    const mythicSaved = await upsertMythicSales(mythicSales);
+    const mythicExpired = await deactivateOldSales('MythicSale');
 
-    const sanctumSales = await processSanctumBanners();
-    await upsertSanctumSales(sanctumSales);
-    await deactivateOldSales('SanctumSale');
+    const sanctumResult = await processSanctumBanners();
+    const sanctumSales = sanctumResult.sales;
+    const sanctumSaved = await upsertSanctumSales(sanctumSales);
+    const sanctumExpired = await deactivateOldSales('SanctumSale');
 
     const yourShopStatus = processYourShopStatus();
+    let yourShopSynced = false;
     if (yourShopStatus.kind === 'failed') {
         console.warn(
             'Skipping Your Shop sync because the client request failed.',
@@ -634,7 +650,14 @@ async function main() {
             'Skipped Your Shop sync because the client request failed.',
         );
     } else {
-        await syncYourShopSale(yourShopStatus.sale);
+        yourShopSynced = await syncYourShopSale(yourShopStatus.sale);
+    }
+
+    if (
+        catalogSaved && catalogExpired && mythicSaved && mythicExpired &&
+        sanctumResult.success && sanctumSaved && sanctumExpired && yourShopSynced
+    ) {
+        await refreshPublicApi(logger);
     }
 
     const nextCatalogRefresh = getNextRefreshBeforeDefault(
