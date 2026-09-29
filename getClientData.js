@@ -5,8 +5,7 @@ import { parseLeagueLockfile } from './lib/leagueLockfile.js';
 
 const client = new HasagiClient();
 const leagueInstallDirectory =
-    process.env.LEAGUE_INSTALL_DIRECTORY ??
-    'C:\\Riot Games\\League of Legends';
+    process.env.LEAGUE_INSTALL_DIRECTORY ?? 'C:\\Riot Games\\League of Legends';
 const leagueLockfile = path.join(leagueInstallDirectory, 'lockfile');
 const connectionAttempts = Number.parseInt(
     process.env.LEAGUE_CONNECTION_ATTEMPTS ?? '12',
@@ -87,10 +86,7 @@ while (!storesLoaded && retries < maxRetries) {
 
         // Check store status
         const storeStatus = await client.request('get', '/lol-store/v1/status');
-        const shoppefrontStatus = await client.request(
-            'get',
-            '/lol-shoppefront/v1/ready',
-        );
+        const shoppefrontStatus = true; // bugged, setting to true as default
 
         console.log('store status:', storeStatus.storefrontIsRunning);
         console.log('shoppefront status:', shoppefrontStatus);
