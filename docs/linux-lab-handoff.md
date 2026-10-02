@@ -1,7 +1,9 @@
 # Linux lab handoff (2026-10-02)
 
 Status notes for whoever picks this up next (Codex or Claude). Read
-`docs/linux-ingestion.md` first for the collector/local-Supabase design.
+`docs/linux-ingestion.md` first for the collector/local-Supabase design,
+`docs/riot-direct-api.md` for the full API flow and re-discovery playbook, and
+`docs/linux-migration.md` for the plan to replace the Windows + Pi pipeline.
 
 Ground rules (from the owner):
 

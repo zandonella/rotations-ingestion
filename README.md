@@ -1,6 +1,7 @@
 # rotations-ingestion
 
-> Linux experiment: see [the local-only setup and client access options](docs/linux-ingestion.md).
+> Linux experiment: see [the local-only setup and client access options](docs/linux-ingestion.md),
+> [the Riot direct API flow](docs/riot-direct-api.md), and [the migration plan](docs/linux-migration.md).
 > This branch is for the isolated lab; do not push it to `main`.
 > The collector now writes one atomic `data/source/clientSnapshot.json`; instructions below
 > describing separate client JSON files and Hasagi are the original Windows workflow.
