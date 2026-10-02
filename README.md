@@ -1,5 +1,11 @@
 # rotations-ingestion
 
+> Linux experiment: see [the local-only setup and client access options](docs/linux-ingestion.md).
+> This branch is for the isolated lab; do not push it to `main`.
+> The collector now writes one atomic `data/source/clientSnapshot.json`; instructions below
+> describing separate client JSON files and Hasagi are the original Windows workflow.
+
+
 **Data ingestion for [Rotations.lol](https://rotations.lol), a League of Legends cosmetic wishlist and rotation tracker.**
 
 Rotations.lol helps players wishlist League cosmetics and get notified when those items appear in a weekly sale, limited rotation, or the Mythic Shop. This repo powers the data side of that experience: it keeps the shared Supabase database current with a normalized cosmetic catalog and the latest live shop rotations.

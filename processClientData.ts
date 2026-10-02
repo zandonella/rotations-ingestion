@@ -1,4 +1,10 @@
 import fs from 'fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { readClientSnapshot } from './lib/clientSnapshot.js';
+import { isLocalMode } from './lib/localMode.js';
+
+let clientSnapshot: Record<string, unknown> | null = null;
 import type {
     CatalogSaleRecord,
     MythicSaleRecord,
@@ -21,6 +27,11 @@ import {
 } from './lib/yourShop.ts';
 
 const logger = new DiscordLogger('processClientData');
+
+function readSource(name: string): string {
+    if (clientSnapshot) return JSON.stringify(clientSnapshot[name]);
+    return fs.readFileSync(`data/source/${name}.json`, 'utf8');
+}
 
 // helpers
 function minDate(a: Date | null, b: Date | null): Date | null {
@@ -270,7 +281,7 @@ function minimizeMythicSale(sales: RawMythicSale[]): MythicSaleRecord[] {
 
 // proccessing functions
 function processCatalogSales(): CatalogSaleRecord[] {
-    const salesJsonData = fs.readFileSync('data/source/catalog.json', 'utf8');
+    const salesJsonData = readSource('catalog');
     const salesData = JSON.parse(salesJsonData) as RawCatalogSale[];
     const filteredSales = filterCatalogSales(salesData);
     const limitedSales = getLimitedSales(salesData);
@@ -282,10 +293,7 @@ function processCatalogSales(): CatalogSaleRecord[] {
 }
 
 function processMythicSales() {
-    const salesJsonData = fs.readFileSync(
-        'data/source/mythicShop.json',
-        'utf8',
-    );
+    const salesJsonData = readSource('mythicShop');
     const salesData = JSON.parse(salesJsonData);
 
     const minimizedSales = minimizeMythicSale(salesData);
@@ -297,10 +305,7 @@ async function processSanctumBanners(): Promise<{
     sales: SanctumSaleRecord[];
     success: boolean;
 }> {
-    const bannersJsonData = fs.readFileSync(
-        'data/source/sanctumBanners.json',
-        'utf8',
-    );
+    const bannersJsonData = readSource('sanctumBanners');
     const banners = JSON.parse(bannersJsonData) as RawSanctumBanner[];
     if (banners.length === 0) return { sales: [], success: true };
     const riotItemIds = [
@@ -378,10 +383,7 @@ async function processSanctumBanners(): Promise<{
 function processYourShopStatus():
     | { kind: 'fetched'; sale: YourShopSaleRecord | null }
     | { kind: 'failed' } {
-    const statusJsonData = fs.readFileSync(
-        'data/source/yourShopStatus.json',
-        'utf8',
-    );
+    const statusJsonData = readSource('yourShopStatus');
     const status = JSON.parse(statusJsonData) as unknown;
 
     if (
@@ -593,7 +595,10 @@ function getNextRefreshBeforeDefault(saleTimes: Date[]) {
 }
 
 async function scheduleNextRefresh(nextRefresh: Date) {
-    const res = await fetch('http://100.99.1.41:3000/schedule-wake', {
+    if (isLocalMode() || process.env.WAKE_SCHEDULER_ENABLED === 'false') return;
+    const res = await fetch(process.env.WAKE_SCHEDULER_URL || 'http://100.99.1.41:3000/schedule-wake', {
+        signal: AbortSignal.timeout(5000),
+        redirect: 'error',
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -627,6 +632,13 @@ async function writeHeartbeat(nextExpectedAt: Date, message?: string) {
 
 // main function
 async function main() {
+    const directory = process.env.CLIENT_DATA_DIRECTORY || path.join(path.dirname(fileURLToPath(import.meta.url)), 'data/source');
+    clientSnapshot = readClientSnapshot(directory, {
+        maxAgeSeconds: process.env.CLIENT_SNAPSHOT_MAX_AGE_SECONDS ?? 1800,
+    });
+    if (!clientSnapshot && process.env.CLIENT_REQUIRE_SNAPSHOT === 'true') {
+        throw new Error('A fresh clientSnapshot.json is required. Run the collector first.');
+    }
     const sales = dedupeCatalogSales(processCatalogSales());
     const catalogSaved = await upsertCatalogSales(sales);
     const catalogExpired = await deactivateOldSales('CatalogSale');
@@ -653,11 +665,13 @@ async function main() {
         yourShopSynced = await syncYourShopSale(yourShopStatus.sale);
     }
 
-    if (
-        catalogSaved && catalogExpired && mythicSaved && mythicExpired &&
-        sanctumResult.success && sanctumSaved && sanctumExpired && yourShopSynced
-    ) {
+    const allSaved = catalogSaved && catalogExpired && mythicSaved && mythicExpired &&
+        sanctumResult.success && sanctumSaved && sanctumExpired && yourShopSynced;
+    if (allSaved) {
         await refreshPublicApi(logger);
+    } else {
+        process.exitCode = 1;
+        await logger.error('Client data processing was incomplete.');
     }
 
     const nextCatalogRefresh = getNextRefreshBeforeDefault(

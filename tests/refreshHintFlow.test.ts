@@ -67,6 +67,7 @@ test('ingestion hints reflect public data results before operational bookkeeping
     });
     t.mock.module('fs', {
         defaultExport: {
+            existsSync() { return false; },
             readFileSync(path: string) {
                 const start = new Date(Date.now() - 60_000).toISOString();
                 const end = new Date(Date.now() + 60_000).toISOString();

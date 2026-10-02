@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { isLocalMode } from './localMode.js';
 dotenv.config({ quiet: true });
 
 type DiscordLogLevel = 'ERROR' | 'WARN' | 'OK';
@@ -123,6 +124,7 @@ export class DiscordLogger {
         level: DiscordLogLevel,
         context: string,
     ) {
+        if (isLocalMode()) return;
         const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
 
         if (!webhookUrl) {
