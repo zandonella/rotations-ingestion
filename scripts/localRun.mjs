@@ -24,11 +24,14 @@ const commands = {
     collect: [[process.execPath, 'getClientData.js']],
     client: [[process.execPath, 'getClientData.js'], [process.execPath, 'processClientData.ts']],
     'process-client': [[process.execPath, 'processClientData.ts']],
+    // No League client: Riot services via a signed-in Riot Client (set RIOT_CLIENT_LOCKFILE).
+    direct: [[process.execPath, 'scripts/collectDirect.mjs'], [process.execPath, 'processClientData.ts']],
+    'collect-direct': [[process.execPath, 'scripts/collectDirect.mjs']],
     static: [['bash', 'environmentSetup.sh']],
     'process-static': [[process.execPath, 'processStaticData.ts']],
 };
-if (!commands[command]) throw new Error('Use collect, client, process-client, static, or process-static.');
-if (command !== 'collect' && !env.SUPABASE_KEY) throw new Error('Set the local service-role key in .env.local first.');
+if (!commands[command]) throw new Error('Use collect, client, process-client, direct, collect-direct, static, or process-static.');
+if (!command.startsWith('collect') && !env.SUPABASE_KEY) throw new Error('Set the local service-role key in .env.local first.');
 for (const [executable, ...args] of commands[command]) {
     const result = spawnSync(executable, args, { cwd: root, env, stdio: 'inherit' });
     if (result.status !== 0) {

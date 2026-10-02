@@ -10,6 +10,8 @@
         "local:collect": "node scripts/localRun.mjs collect",
         "local:client": "node scripts/localRun.mjs client",
         "local:process:client": "node scripts/localRun.mjs process-client",
+        "local:direct": "node scripts/localRun.mjs direct",
+        "local:collect:direct": "node scripts/localRun.mjs collect-direct",
         "local:static": "node scripts/localRun.mjs static",
         "test:linux": "node --test tests/linuxCollector.test.mjs",
         "test:local-db": "node tests/localDatabaseSmoke.mjs"

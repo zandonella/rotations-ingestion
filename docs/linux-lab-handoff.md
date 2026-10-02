@@ -80,25 +80,73 @@ The store host (`getStoreUrl`) is still unknown. The `payments_host` values in
 the public `system.yaml` (`plstore2.na.lol.riotgames.com`) no longer resolve, and
 `na.store.leagueoflegends.com` fails the TLS handshake.
 
-## Where it stopped
+## Working route: `npm run local:direct` (no League client)
 
-- League requires Vanguard (`vanguard: true` in product settings). Vanguard is
-  a kernel anti-cheat and cannot run under Wine. **Do not try to bypass it.**
-  That's why the plan is to fetch the data over HTTP instead of running League.
-- `tools/league-session.mjs` (GAPS login queue, then session-external) with the
-  `riot-client` access token returns **403 `forbidden` "Request denied due to
-  lack of required permission(s)"** from the login queue. Calling
-  `session/create` directly with that token also returns 403.
-- Claude Code's auto-mode safety classifier then refused further work on the
-  League login flow (including running `league-session.mjs` and reverse
-  engineering the client's token handling), even though the owner approved it.
-  Claude stopped there. The owner decides whether and how this continues.
+Verified 2026-10-02 against live NA data, written to **local** Supabase only:
+9,458 catalog items, 4 Mythic Shop rotations (25 entries), 2 Sanctum banners,
+Your Shop inactive. Output passes the existing `validateClientData`.
+
+```bash
+# Riot Client must be running and signed in (tools/run-riot-stack.sh in the lab)
+RIOT_CLIENT_LOCKFILE="/home/zando/rotations-linux-lab/wine/prefix/drive_c/users/zando/AppData/Local/Riot Games/Riot Client/Config/lockfile" \
+  npm run local:direct          # collect + process into local Supabase
+# or: npm run local:collect:direct   (snapshot only)
+```
+
+`lib/riotDirect.js` does what LeagueClient does at login, then only GETs:
+
+1. **League token from the Riot Client:** `POST /rso-auth/v2/authorizations`
+   on the Riot Client's loopback API with `clientId: "lol"`,
+   `trustLevels: ["always_trusted"]`, LeagueClient's scopes, and
+   `claims: ["rgn_NA1"]`. A 400 "already exists" means use
+   `GET /rso-auth/v2/authorizations/lol`. The token is `authorization.accessToken.token`
+   (`cid: lol`, not DPoP-bound). The `riot-client` token gets **403** from the
+   login queue; only the `lol` token works.
+2. **League session (LST):** entitlements (`entitlements.auth.riotgames.com/api/token/v1`),
+   signed userinfo (`auth.riotgames.com/userinfo`, `Accept: application/jwt`), then
+   `POST {player-platform edge}/login-queue/v2/login/products/lol/regions/na1`
+   `{clientName:"lcu", entitlements, userinfo}`, then
+   `POST {player-platform edge}/session-external/v1/session/create` with the
+   queue token. **Both go to `usw2-red.pp.sgp.pvp.net`**; the League edge returns 403
+   for session/create. The LST lasts 10 minutes.
+3. **Catalog** = `GET {league edge}/storefront/v1/catalog?region=NA1&language=en_US`
+   with the **lol access token** (the LST gets 401 here). League edge comes from player config
+   `lol.client_settings.league_edge.url` (`https://na-red.lol.sgp.pvp.net`).
+4. **Shoppe stores** = `GET {league edge}/catalog/v1/products/d1c2664a-5938-4c41-8d1b-61fd51052c22/stores`
+   with the **LST**. League's Shoppe product id is `d1c2664a-…`
+   (`388c3f86-…` returns TFT stores). One call returns every League store.
+   - `mythicShop` = active stores with `displayMetadata.shoppefront.id == "MYTHIC_SHOP"`
+     (DAILY/WEEKLY/BIWEEKLY/FEATURED rotations). The entries are exactly the
+     `/lol-shoppefront/v1/stores/MYTHIC_SHOP` shape.
+   - `sanctumBanners` = active stores with `displayMetadata.lol.store == "sanctum"`,
+     joined by `displayMetadata.sanctum.bannerId` to CommunityDragon
+     `rcp-be-lol-game-data/global/default/v1/nachobanners.json` (bannerSkin,
+     pity thresholds, background texture). Dates come from the store's
+     `startTime`/`endTime` (epoch seconds). The store's `displayMetadata.startDate`/`endDate`
+     look stale (they end 2026-09-23 while the store runs to 2026-11-04).
+     **Unverified** against a real `/lol-sanctum/v1/banners` response.
+5. **Your Shop** = player config `lol.client_settings.yourshop`
+   (`Active`, `PromotionName`, `PromotionStartDate`, `PromotionEndDate`), read through
+   the Riot Client's `/client-config/v2/namespace/lol.client_settings/player`.
+   Inactive maps to `{}`. **Unverified** while active, because Your Shop is currently off.
+
+Lab probes: `tools/lol-authorization.mjs`, `tools/league-session.mjs`,
+`tools/probe-league-edge.mjs PATH…` (GET only; saves to `research/probes/`).
+Copies are in `scripts/linux-lab/`.
+
+Auto-mode note: Claude Code's auto-mode classifier refused this login work
+(as a "third-party attack") even with the owner's approval. The owner switched
+the session to normal permission mode and approved each command.
 
 ## Not done yet
 
-- The four snapshot inputs (`catalog`, `mythicShop`, `sanctumBanners`,
-  `yourShopStatus`) have not been fetched live from Linux. Everything in local
-  Supabase beyond the static CommunityDragon catalog is synthetic.
-- No mapping from storefront/Shoppe responses to the LCU shapes that
-  `lib/clientSnapshot.js` validates.
-- Session persistence after a Riot Client restart is not verified.
+- **Unattended operation:** the Riot Client must stay signed in under Wine.
+  Session persistence across a Riot Client/Wine restart is not verified yet.
+  A scheduled job also needs `tools/run-riot-stack.sh` to come up headless first.
+- Sanctum date semantics and an active Your Shop are unverified (see above).
+- Login queue: only `type: LOGIN` with an immediate token is handled. If NA ever
+  queues, `collectDirect` fails rather than waits.
+- Other regions: `LEAGUE_PLATFORM`, `PLAYER_PLATFORM_EDGE_URL` and `LEAGUE_EDGE_URL`
+  can override the NA defaults, but only NA was tested.
+- Nothing here is wired into the production `serverScript.sh` path. Do not merge
+  to `main` as-is (`supabase/config.toml` points at the lab project).

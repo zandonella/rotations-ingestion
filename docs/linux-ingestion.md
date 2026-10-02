@@ -37,6 +37,11 @@ Discord, refresh hints, and wake scheduling, and do not inherit a database key
 from the shell. Supabase redirects are rejected. Do not run the existing `prod:*`
 commands, `serverScript.sh`, email sender, or backup/restore scripts in this lab.
 
+## Option 0 (works): Riot services directly, no League client
+
+`npm run local:direct` with `RIOT_CLIENT_LOCKFILE` pointing at a signed-in Riot
+Client (under Wine in the lab). See `docs/linux-lab-handoff.md` for the flow.
+
 ## Option 1: Linux collector, signed-in Windows or Mac client
 
 Requires SSH access to that machine and a signed-in League client with its store
