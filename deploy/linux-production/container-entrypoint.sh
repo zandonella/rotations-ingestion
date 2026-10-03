@@ -23,18 +23,23 @@ tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailsca
 tunnel_pid=$!
 riot_pid=''
 cleanup() {
+    pkill -TERM -u 1000 2>/dev/null || true
     [[ -z "$riot_pid" ]] || kill "$riot_pid" 2>/dev/null || true
     kill "$tunnel_pid" 2>/dev/null || true
     wait || true
 }
 trap cleanup EXIT
 trap 'exit 143' TERM INT
-for attempt in {1..30}; do
-    [[ -S /var/run/tailscale/tailscaled.sock ]] && break
+ready=false
+for attempt in {1..60}; do
+    if tailscale status --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{process.exitCode=JSON.parse(s).BackendState==="Running"?0:1}catch{process.exitCode=1}})'; then
+        ready=true
+        break
+    fi
     sleep 1
 done
-[[ "$(tailscale status --json | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>console.log(JSON.parse(s).BackendState))')" == Running ]] || {
-    echo 'Tailscale state is not signed in. Authorize the private state before starting production.' >&2
+[[ "$ready" == true ]] || {
+    echo 'Tailscale did not become ready; check private state and connectivity.' >&2
     exit 1
 }
 tailscale set --exit-node="$EXIT_NODE" --exit-node-allow-lan-access=false --accept-dns=false
