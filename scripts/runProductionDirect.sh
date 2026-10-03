@@ -12,6 +12,10 @@ if ! flock -n 9; then
     exit 0
 fi
 
+printf '%s\n' "$$" > data/run/production-run.pid
+trap 'rm -f data/run/production-run.pid' EXIT
+attempt=1
+
 export INGESTION_POLL_INTERVAL_MINUTES=30
 export RIOT_CLIENT_LOCKFILE="${RIOT_CLIENT_LOCKFILE:-$ROOT/../wine/prefix/drive_c/users/$(id -un)/AppData/Local/Riot Games/Riot Client/Config/lockfile}"
 

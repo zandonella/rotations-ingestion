@@ -14,7 +14,7 @@
         "local:refresh": "bash scripts/runLocalDirect.sh",
         "local:collect:direct": "node scripts/localRun.mjs collect-direct",
         "local:static": "node scripts/localRun.mjs static",
-        "test:linux": "node --test tests/linuxCollector.test.mjs tests/productionConfig.test.mjs tests/riotPause.test.mjs && node --experimental-test-module-mocks --test tests/refreshHintFlowLinux.test.ts",
+        "test:linux": "node --test tests/linuxCollector.test.mjs tests/productionConfig.test.mjs tests/productionStop.test.mjs tests/riotPause.test.mjs && node --experimental-test-module-mocks --test tests/refreshHintFlowLinux.test.ts",
         "test:local-db": "node tests/localDatabaseSmoke.mjs",
         "linux:prod:check": "node scripts/productionRun.mjs check",
         "linux:prod:refresh": "bash scripts/runProductionDirect.sh"

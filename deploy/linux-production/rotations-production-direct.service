@@ -4,7 +4,8 @@ Description=Rotations production ingestion through isolated exit node
 [Service]
 Type=oneshot
 WorkingDirectory=@ROOT@
-ExecStart=/usr/bin/docker exec --user 1000:1000 rotations-ingestion-production bash scripts/runProductionDirect.sh
+ExecStart=/usr/bin/docker exec --user 1000:1000 rotations-ingestion-production setsid --wait bash scripts/runProductionDirect.sh
+ExecStop=/usr/bin/docker exec --user 1000:1000 rotations-ingestion-production node scripts/stopProductionRun.mjs
 UMask=0077
 TimeoutStartSec=12min
 TimeoutStopSec=15s
