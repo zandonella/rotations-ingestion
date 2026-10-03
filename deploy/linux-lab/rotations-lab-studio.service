@@ -1,0 +1,12 @@
+[Unit]
+Description=Local Supabase Studio access from Tailscale only
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node %h/rotations-linux-lab/rotations-ingestion/scripts/serveLocalStudio.mjs
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=default.target

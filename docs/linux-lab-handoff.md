@@ -1,5 +1,15 @@
 # Linux lab handoff (2026-10-02)
 
+Later update: original Windows files and dependencies are now restored unchanged;
+Linux uses separate `*Linux` modules and `linux/supabase/config.toml`. Monitoring remains on the VPS;
+the sibling `rotations-monitoring` repo contains its separate Linux entry point.
+The earlier local monitor service has been disabled and removed from source.
+
+Later update: [Linux testing](linux-testing.md) documents the installed :00/:30
+UTC timer, supervised Riot service, retries, and strict missing-data handling.
+Sign-in survived the supervised Wine/Riot restart and a live collection succeeded
+on its second attempt after the startup gap. Full host reboot remains untested.
+
 Status notes for whoever picks this up next (Codex or Claude). Read
 `docs/linux-ingestion.md` first for the collector/local-Supabase design,
 `docs/riot-direct-api.md` for the full API flow and re-discovery playbook, and
@@ -7,8 +17,9 @@ Status notes for whoever picks this up next (Codex or Claude). Read
 
 Ground rules (from the owner):
 
-- Work only on `codex/linux-ingestion-lab`. **Never commit or push to `main`**:
-  the production host auto-pulls `main` on a schedule.
+- Original lab rule was to work only on the lab branch. On 2026-10-03 the owner
+  explicitly authorized merging ingestion and monitoring into main and activating
+  production on this host. Windows/Pi ingestion is now disabled.
 - Local Supabase only; never touch production data.
 - Keep tests minimal.
 - The Riot account used in the lab is a dedicated account, not a personal one.
@@ -45,7 +56,7 @@ the lab paths above; run the lab copies in `/home/zando/rotations-linux-lab/tool
      stored). hCaptcha appeared; the owner solved it from a numbered screenshot.
      Make sure nothing else (e.g. `qr-login.py`) is clicking the display meanwhile.
    - "Stay signed in" was ticked, so the session should persist across client
-     restarts. **Not yet verified** after a restart.
+     restarts. Subsequently verified during the supervised restart described above.
 3. **Riot Client tokens.** `node tools/riot-session.mjs` reads the local Riot
    Client API (lockfile auth) and writes `secrets/rc-session.json`. Access-token
    scopes: `openid link ban lol_region lol account summoner offline_access`,
@@ -143,12 +154,13 @@ the session to normal permission mode and approved each command.
 ## Not done yet
 
 - **Unattended operation:** the Riot Client must stay signed in under Wine.
-  Session persistence across a Riot Client/Wine restart is not verified yet.
-  A scheduled job also needs `tools/run-riot-stack.sh` to come up headless first.
+  The later lab services start it headlessly and restart it on exit; sign-in
+  survived a Wine/Riot restart. Multi-day operation and host reboot remain unverified.
 - Sanctum date semantics and an active Your Shop are unverified (see above).
 - Login queue: only `type: LOGIN` with an immediate token is handled. If NA ever
   queues, `collectDirect` fails rather than waits.
 - Other regions: `LEAGUE_PLATFORM`, `PLAYER_PLATFORM_EDGE_URL` and `LEAGUE_EDGE_URL`
   can override the NA defaults, but only NA was tested.
-- Nothing here is wired into the production `serverScript.sh` path. Do not merge
-  to `main` as-is (`supabase/config.toml` points at the lab project).
+- Nothing here is wired into the production `serverScript.sh` path. The lab
+  configuration is now separate in `linux/supabase/config.toml`; production cutover
+  still needs the explicit Linux deployment described in `docs/linux-migration.md`.

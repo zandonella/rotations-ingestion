@@ -13,5 +13,5 @@ try {
         `${data.sanctumBanners.length} Sanctum banners, Your Shop ${data.yourShopStatus.name ? 'active' : 'inactive'}.`);
 } catch (error) {
     console.error(error.message);
-    process.exitCode = 20;
+    process.exitCode = error.exitCode === 75 ? 75 : 20;
 }

@@ -1,9 +1,7 @@
-import { isLocalMode } from './localMode.js';
 type WarningLogger = { warn(message: string): void };
 
 // A cache hint is optional and must never turn successful ingestion into failure.
 export async function refreshPublicApi(logger: WarningLogger): Promise<boolean> {
-    if (isLocalMode()) return false;
     const url = process.env.ROTATIONS_API_REFRESH_URL;
     const secret = process.env.ROTATIONS_API_REFRESH_SECRET;
     if (!url && !secret) return false;

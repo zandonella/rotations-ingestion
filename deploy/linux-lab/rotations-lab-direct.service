@@ -1,0 +1,13 @@
+[Unit]
+Description=Rotations Linux lab collection into local Supabase
+Wants=rotations-lab-riot.service
+After=rotations-lab-riot.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/rotations-linux-lab/rotations-ingestion
+ExecStart=/usr/bin/bash %h/rotations-linux-lab/rotations-ingestion/scripts/runLocalDirect.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+UMask=0077
+TimeoutStartSec=12min
+TimeoutStopSec=15s

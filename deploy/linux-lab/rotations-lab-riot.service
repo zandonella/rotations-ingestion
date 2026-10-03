@@ -1,0 +1,17 @@
+[Unit]
+Description=Signed-in lab Riot Client under Wine and Xvfb
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/bash %h/rotations-linux-lab/rotations-ingestion/scripts/linux-lab/run-riot-stack.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+UMask=0077
+Restart=always
+RestartSec=15s
+TimeoutStopSec=20s
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

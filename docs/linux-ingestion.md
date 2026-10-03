@@ -1,5 +1,8 @@
 # Linux ingestion lab
 
+For the installed half-hour test timer, supervised Riot Client, manual refresh,
+and operational checks, see [Linux testing](linux-testing.md).
+
 Work is on `codex/linux-ingestion-lab` in `/home/zando/rotations-linux-lab`.
 Do not push to `main`: the production host automatically pulls it.
 No production database, email sender, Discord hook, wake scheduler, or GitHub dispatch is needed here.
@@ -72,7 +75,7 @@ self-signed certificate; internet TLS verification remains enabled.
 
 ## Option 2: Transfer data without transferring client credentials
 
-Run the updated `node getClientData.js` on the machine running League, then copy
+Run the updated `node getClientDataLinux.js` on the machine running League, then copy
 `data/source/clientSnapshot.json` to this clone's `data/source/` and run:
 
 ```bash
@@ -130,7 +133,7 @@ be validated before claiming this approach works unattended.
 
 ## Snapshot and processing behavior
 
-`getClientData.js` now publishes one `clientSnapshot.json` only after all four
+`getClientDataLinux.js` now publishes one `clientSnapshot.json` only after all four
 responses have been fetched and validated. A failed request exits nonzero and
 leaves the last snapshot intact for inspection; the combined runner stops before
 processing. The processor checks freshness and loads one input set before writes.
@@ -151,7 +154,7 @@ credentials are not printed.
 
 ```bash
 npm test                    # existing regression suite
-npm run test:linux          # two small guard/failure tests
+npm run test:linux          # collector, mapping, and polling regression checks
 npm run test:local-db       # one HTTPS fixture -> real local Supabase check
 ```
 
@@ -159,7 +162,7 @@ The database smoke check uses clearly synthetic offers, requires the static
 catalog first, and leaves its rows in the local database. It does not demonstrate
 live Riot access. Do not mistake the resulting API rotations for real shop data.
 
-Stop the lab database with `npx supabase stop`; it preserves local data. The
+Stop the lab database with `npx supabase --workdir linux stop`; it preserves local data. The
 separate API test container can be stopped with
 `docker stop rotations-linux-lab-api`. To revoke the temporary Docker grant,
 run `sudo setfacl -x u:zando /var/run/docker.sock` in your own terminal.

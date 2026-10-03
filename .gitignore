@@ -152,3 +152,7 @@ vite.config.ts.timestamp-*
 # Private client credentials used by the Linux collector experiments
 secrets/
 *.session.json
+
+!.env.linux.prod.example
+
+!.env.proxy.example

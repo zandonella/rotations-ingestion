@@ -1,0 +1,5 @@
+**
+!deploy/
+!deploy/linux-production/
+!deploy/linux-production/Dockerfile
+!deploy/linux-production/container-entrypoint.sh

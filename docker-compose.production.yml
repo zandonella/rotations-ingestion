@@ -1,0 +1,35 @@
+services:
+  ingestion:
+    build:
+      context: .
+      dockerfile: deploy/linux-production/Dockerfile
+    container_name: rotations-ingestion-production
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, SETUID, SETGID, SETPCAP, KILL, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    devices: [/dev/net/tun:/dev/net/tun]
+    env_file: .env.proxy.local
+    environment:
+      ROTATIONS_LAB_ROOT: ${RUNTIME_ROOT:?Set RUNTIME_ROOT in private .env.proxy.local}
+      ROTATIONS_WINE_USER: zando
+      HOME: /home/zando
+    working_dir: /app
+    volumes:
+      - .:/app:ro
+      - ./data:/app/data
+      - ${RUNTIME_ROOT}/tools:${RUNTIME_ROOT}/tools:ro
+      - ${RUNTIME_ROOT}/wine:${RUNTIME_ROOT}/wine
+      - ${RUNTIME_ROOT}/logs:${RUNTIME_ROOT}/logs
+      - ${RUNTIME_ROOT}/tmp:${RUNTIME_ROOT}/tmp
+      - tunnel-state:/var/lib/tailscale
+    healthcheck:
+      test: [CMD, node, scripts/checkProductionRuntime.mjs]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+volumes:
+  tunnel-state:
+    external: true
+    name: ${TAILSCALE_STATE_VOLUME:?Set the existing private state volume}

@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect Rotations lab data every 30 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00,30:00 UTC
+Persistent=true
+AccuracySec=1s
+Unit=rotations-lab-direct.service
+
+[Install]
+WantedBy=timers.target

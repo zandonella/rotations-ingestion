@@ -1,0 +1,11 @@
+[Unit]
+Description=Rotations production collection every half hour
+
+[Timer]
+OnCalendar=*-*-* *:00,30:00 UTC
+Persistent=true
+AccuracySec=1s
+Unit=rotations-production-direct.service
+
+[Install]
+WantedBy=timers.target

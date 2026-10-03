@@ -1,134 +1,69 @@
-# Moving ingestion from Windows + Pi to Linux
+# Linux migration and legacy compatibility
 
-Status: **proposal**. The Linux collector works against live data into a local
-database (see `docs/riot-direct-api.md`). The production pieces described below
-under "Phase 2" are not built yet, and nothing here has touched production.
+Linux is running in the isolated lab. No production database, deployed monitor,
+Windows/Pi scheduler, or main branch has been changed. The owner selected full
+shop collection at **:00 and :30 UTC**, with manual in-game comparisons while
+Windows is unavailable. See [Linux testing](linux-testing.md).
 
-## Today: Windows + Pi (legacy)
+## Separate flows
 
-```
-nebula (Pi, 100.99.1.41)                  polaris (Windows, 100.85.127.57)
- systemd timer, daily 00:00 UTC (5pm PDT)
- + one-off wakes from /schedule-wake  ──WOL──►  boots; startup wrapper pulls main
-                                                serverScript.sh:
-                                                  start Riot Client
-                                                  product-launcher → launch League
-                                                  getClientData.js  (LCU: 4 endpoints)
-                                                  processClientData.ts → prod Supabase
-                                                    ├ heartbeat → GitHub OG dispatch
-                                                    ├ Discord status
-                                                    └ POST nebula:3000/schedule-wake (if a sale ends before 00:00 UTC)
-                                                wrapper handles retries, kills wedged processes, sleeps
-```
-
-Weak points: Wake-on-LAN and a full Windows boot for every run, League patches
-and Vanguard on a headless machine, two machines that both have to be healthy,
-and the startup wrapper living outside the repo.
-
-## New: one Linux host, no League
-
-```
-aurora (Linux, always on)
-  Riot Client under Wine, headless, signed in once ("Stay signed in")   ← long-running service
-  timer at 00:00 UTC (+ one-off timers for sale end times)
-    → collectDirect (riotDirect.js): lol token → League session → storefront + Shoppe + CDragon
-    → processClientData.ts → prod Supabase (unchanged: heartbeat, Discord, OG dispatch, API hint)
-```
-
-| | Windows + Pi | Linux direct |
+| Component | Original Windows/Pi flow | Linux flow |
 | --- | --- | --- |
-| Machines | Pi scheduler + Windows box | One Linux host |
-| Per run | WOL, boot, Riot Client, League launch, store load (minutes) | 4 HTTPS calls + 3 GETs (seconds) |
-| League install / patches / Vanguard | Required | Not used |
-| Riot Client | Started each run | Always running under Wine |
-| Data source | LCU `/lol-store`, `/lol-shoppefront`, `/lol-sanctum`, `/lol-yourshop` | The services those LCU endpoints call (see API doc) |
-| Processing, DB writes, heartbeat, Discord | `processClientData.ts` | Same file, unchanged |
-| Sign-in | League client keeps the session | Riot Client "Stay signed in"; re-login needs a person (captcha) |
-| Breaks when | WOL, boot, League patch, store load | Riot changes internal routes, Riot Client update breaks under Wine, session lost |
+| Launch / scheduling | `serverScript.sh`, external Windows wrapper and Pi wakes | Lab Riot service and half-hour systemd timer |
+| Client collector | `getClientData.js` with Hasagi | `scripts/collectDirect.mjs`; optional LCU collector `getClientDataLinux.js` |
+| Client processing | `processClientData.ts`, four individual source files | `processClientDataLinux.ts`, validated atomic snapshot |
+| Static processing | `environmentSetup.sh`, `processStaticData.ts` | `environmentSetupLinux.sh`, `processStaticDataLinux.ts` |
+| DB / notifications | Original `lib/supabase.ts`, logger and refresh helper | Separate `lib/*Linux` adapters with local guards |
+| Supabase CLI project | Original `supabase/config.toml` | `linux/supabase/config.toml`, selected with `--workdir linux` |
+| Monitor | Original `rotations-monitoring` `npm start` and Pi checks | Separate `npm run start:linux` on the existing VPS |
 
-`processClientData.ts` doesn't know which collector ran. Both produce the same
-validated `data/source/clientSnapshot.json`.
+Original ingestion files, existing package commands and dependency versions are
+preserved from the main baseline. The Linux changes are opt-in. The Windows
+machine can keep its current auto-pull and command sequence after a reviewed
+merge; pulling the repository does not enable any Linux service or change the
+Windows flow. No merge or push has been performed. Windows itself has not been
+run in this Linux environment.
 
-## Transition plan
+## What is now installed in the lab
 
-### Phase 0: lab validation (done)
+- Supervised Riot Client under wine-staging, retaining its saved sign-in.
+- Half-hour collection, a lock against overlapping runs, bounded attempts and
+  retries, and heartbeat deadlines matching the polling schedule.
+- Database reporting of runner attempts/failures for `rotations-monitoring` on
+  the existing VPS. The local monitor was removed; one-shot contract checks use
+  the local database. See the monitoring repo's `docs/linux.md`.
+- Strict failure on missing Your Shop configuration and unmatched active Sanctum
+  banner definitions. Collection failure preserves the prior source snapshot.
 
-`npm run local:direct` collects live NA data into the lab's local Supabase.
-Production is untouched, and the branch is `codex/linux-ingestion-lab`.
+Sign-in survived a supervised Wine/Riot restart. Multi-day operation, a full host
+reboot, Sanctum date semantics, and active Your Shop still require validation.
 
-### Phase 1: shadow run (recommended 1–2 weeks)
+## Before production cutover
 
-Production stays on Windows + Pi. The Linux host runs the collector on the same
-schedule but **only saves snapshots**, with no database writes:
+1. Complete manual comparisons of item identities, prices, Mythic sections,
+   Sanctum dates, and Your Shop windows with the in-game store.
+2. Prepare explicitly Linux production configuration and stable runtime paths;
+   the installed units and guarded commands are lab-specific.
+3. Decide how to suppress repeated success notifications and unnecessary OG-image
+   dispatches with 48 runs per day. Local testing currently suppresses these.
+4. Configure the existing VPS monitor to use the separate Linux entry point and
+   production heartbeat. Keep it on a separate host to detect Linux-host outages.
+   Apply the separate Linux status migration to the shared production database;
+   the VPS reads early collection failures from that table without filesystem access.
+5. Disable Windows/Pi ingestion scheduling before enabling the Linux production
+   timer. Keep the original scripts and scheduler available for rollback.
 
-- `npm run local:collect:direct` writes a dated snapshot copy at 00:05 UTC.
-- Compare it with the Windows run's data in production (or with a Windows
-  `clientSnapshot.json` if Windows is on this branch) for Mythic entries, sale
-  item ids and Sanctum banners.
-- Things to check during this phase:
-  - [ ] The Riot Client stays signed in across restarts of Wine, the service and the host.
-  - [ ] Sanctum dates match what the old collector stored.
-  - [ ] Your Shop maps correctly while one is live.
-  - [ ] The login queue never returns a wait instead of `LOGIN`.
-  - [ ] A Riot Client update under Wine doesn't break the stack.
+Run only one ingestion flow against production at a time. Unchanged Windows
+commands do not make simultaneous production writers safe. Database writes
+remain per-table operations, not an atomic transaction.
 
-### Phase 2: build the production pieces (not done yet)
+## Rollback
 
-1. `prod:direct` script: `collectDirect` + `processClientData.ts` with `.env.prod`.
-   This is the Linux equivalent of `serverScript.sh`.
-2. Riot Client as a service: a `systemd --user` unit around `tools/run-riot-stack.sh`
-   (Xvfb + wine-staging), restarted on failure, plus a health check
-   (`GET /rso-auth/v1/authorization` returns 200) that alerts Discord when signed out.
-3. Scheduling on the Linux host: a `systemd --user` timer at 00:00 UTC replaces
-   the Pi's daily timer. `scheduleNextRefresh` gets a mode that runs
-   `systemd-run --user --on-calendar=<sale end>` locally instead of POSTing to the
-   Pi. Keep the Pi URL mode for the legacy path.
-4. Retries: the Windows wrapper's role. Wrap the run so a failure retries a few
-   times with backoff, then reports to Discord. The heartbeat already shows missed runs.
-5. Move the lab pieces out of `/home/zando/rotations-linux-lab` into a stable
-   location on the host (Wine prefix, tools, venv). Production must not depend on the lab folder.
+Stop the Linux production timer and any active run, then restore the original
+Windows/Pi scheduling. The legacy files remain available on main after the
+additive Linux changes are merged. A release tag can still identify the exact
+previous deployment, but switching away from main is not required by this split.
 
-### Phase 3: cutover
+Production rollout instructions: [Linux production cutover](linux-production.md).
 
-1. **Before merging anything to `main`:** tag the current production commit, for
-   example `legacy-windows-v1`, and point the Windows box's auto-pull at that tag or
-   a `legacy-windows` branch. That way a later merge to `main` can't change the backup.
-2. Revert the lab-only `supabase/config.toml` change, then merge the Linux
-   collector to `main`.
-3. Disable the Pi's daily timer and `/schedule-wake` (leave them installed),
-   then enable the Linux timer.
-4. Watch heartbeat and Discord for a few days.
-
-**Run only one pipeline against production at a time.** Upserts are idempotent,
-but two schedulers would double the Discord messages, heartbeat writes and OG dispatches.
-
-## Legacy backup (Windows + Pi)
-
-Keep it installed but idle:
-- The Windows box stays on the `legacy-windows-v1` tag, with League installed.
-  Patch it occasionally if you want a fast failover.
-- The Pi keeps its scheduler service. Only its timer is disabled.
-
-**Failover** (the Linux path is broken and can't be fixed quickly):
-1. Stop or disable the Linux timer.
-2. Re-enable the Pi timer, or trigger a wake manually.
-3. The Windows box runs `serverScript.sh` exactly as before.
-
-**Switching back:** reverse the steps. The Linux collector needs the Riot Client
-signed in; check `GET /rso-auth/v1/authorization` first.
-
-Untested: this branch replaced Hasagi in `getClientData.js` with a small LCU
-client, which should still work on Windows, but nobody has run it there. That's
-why the backup should stay pinned to the pre-merge tag rather than tracking `main`.
-
-## Risks
-
-- **Riot ToS / account action:** this uses a dedicated account and only reads
-  shop data, but it is unofficial use of internal endpoints. Losing the account
-  means falling back to Windows.
-- **Endpoint drift:** internal routes can change with any patch. The
-  re-discovery playbook is in `docs/riot-direct-api.md`.
-- **Riot Client under Wine:** vanilla Wine crashes the UI renderer; wine-staging
-  11.18 works. An auto-update could break it.
-- **Re-login needs a person:** an hCaptcha may appear. The terminal-only flow
-  (`type-login.py` + screenshot + clicks) works from a phone.
+Production uses docker-compose.production.yml with an isolated exit-node connection; see docs/linux-production.md. The earlier host-only Riot unit is superseded.

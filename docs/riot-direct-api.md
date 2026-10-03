@@ -130,7 +130,7 @@ GET {league edge}/catalog/v1/products/d1c2664a-5938-4c41-8d1b-61fd51052c22/store
   `…BIWEEKLY_ROTATION_V12` (12) and `…FEATURED_MSIWINNERS` (1). The stores and entries
   (`startTime`, `catalogEntries[].endTime`, `purchaseUnits[].fulfillment.itemId`,
   `paymentOptions[].payments[].finalDelta`/`name`) are exactly what
-  `processClientData.ts` reads from LCU `/lol-shoppefront/v1/stores/MYTHIC_SHOP`.
+  `processClientDataLinux.ts` reads from LCU `/lol-shoppefront/v1/stores/MYTHIC_SHOP`.
 - **Sanctum:** active stores with `displayMetadata.lol.store == "sanctum"`.
   `displayMetadata.sanctum.bannerId` links to the banner definition (step 6).
   Store `startTime`/`endTime` become `startDate`/`endDate` in epoch seconds.
@@ -154,7 +154,10 @@ that gives `RawSanctumBanner`. Override the URL with `NACHO_BANNERS_URL`.
 
 From the step 2 config: `Active: true` maps to
 `{ name: PromotionName, startTime: PromotionStartDate, endTime: PromotionEndDate, hubEnabled: true }`.
-Otherwise it maps to `{}`, which `validateClientData` and `processClientData.ts` treat as "no Your Shop".
+Explicit `Active: false` maps to `{}`, which processing treats as "no Your Shop".
+Missing/malformed configuration or an invalid active promotion window fails
+collection and preserves the previous snapshot. An active Sanctum store without
+a matching CommunityDragon definition also fails rather than silently disappearing.
 **Not yet verified while a Your Shop is live.**
 
 ## Token cheat sheet

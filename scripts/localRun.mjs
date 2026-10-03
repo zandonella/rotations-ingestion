@@ -21,14 +21,15 @@ const env = {
 assertLocalSupabase(env);
 const command = process.argv[2];
 const commands = {
-    collect: [[process.execPath, 'getClientData.js']],
-    client: [[process.execPath, 'getClientData.js'], [process.execPath, 'processClientData.ts']],
-    'process-client': [[process.execPath, 'processClientData.ts']],
+    'report-status': [[process.execPath, 'scripts/reportLinuxRun.mjs']],
+    collect: [[process.execPath, 'getClientDataLinux.js']],
+    client: [[process.execPath, 'getClientDataLinux.js'], [process.execPath, 'processClientDataLinux.ts']],
+    'process-client': [[process.execPath, 'processClientDataLinux.ts']],
     // No League client: Riot services via a signed-in Riot Client (set RIOT_CLIENT_LOCKFILE).
-    direct: [[process.execPath, 'scripts/collectDirect.mjs'], [process.execPath, 'processClientData.ts']],
+    direct: [[process.execPath, 'scripts/collectDirect.mjs'], [process.execPath, 'processClientDataLinux.ts']],
     'collect-direct': [[process.execPath, 'scripts/collectDirect.mjs']],
-    static: [['bash', 'environmentSetup.sh']],
-    'process-static': [[process.execPath, 'processStaticData.ts']],
+    static: [['bash', 'environmentSetupLinux.sh']],
+    'process-static': [[process.execPath, 'processStaticDataLinux.ts']],
 };
 if (!commands[command]) throw new Error('Use collect, client, process-client, direct, collect-direct, static, or process-static.');
 if (!command.startsWith('collect') && !env.SUPABASE_KEY) throw new Error('Set the local service-role key in .env.local first.');
