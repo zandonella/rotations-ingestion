@@ -1,0 +1,51 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { newRotationItems, formatRotationMessage, readActiveRotations, describeRotationItems } from '../lib/rotationNotifications.js';
+import { DiscordLogger } from '../lib/discordLoggerLinux.ts';
+const rotation = { table: 'CatalogSale', label: 'Catalog', keys: ['ItemType', 'RiotItemID', 'SaleStartAt'] };
+const entry = (id, start = '2026-10-04T00:00:00Z') => ({ rotation, sale: { ItemType: 1, RiotItemID: id, SaleStartAt: start } });
+test('unchanged upserts and price/end-date corrections are quiet; new items and returning rotations notify', () => {
+    const before = [entry(1)];
+    const same = entry(1, '2026-10-04T00:00:00.000+00:00');
+    same.sale.SaleEndAt = '2026-11-01';
+    same.sale.SalePrice = 123;
+    assert.deepEqual(newRotationItems(before, [same]), []);
+    const added = entry(2);
+    assert.deepEqual(newRotationItems(before, [same, added, added]), [added]);
+    assert.equal(newRotationItems(before, [entry(1, '2026-10-11')]).length, 1);
+    assert.equal(newRotationItems([], [entry(1)]).length, 1);
+});
+test('messages list at most 50 items and disclose omitted count', async () => {
+    const entries = Array.from({length: 65}, (_, i) => entry(i));
+    const query = { select(){return this;}, eq(){return this;}, limit(){return Promise.resolve({data:[{Name: '@everyone '+ 'x'.repeat(200)}],error:null});} };
+    const text = await describeRotationItems({from:()=>query}, entries);
+    assert.equal(text.split('\n').filter(line=>line.startsWith('•')).length, 50);
+    assert.match(text, /15 more/);
+    assert.ok(text.length <= 4096);
+    assert.equal(text.includes('@everyone'), false);
+    assert.match(formatRotationMessage(1, ['• Catalog: Example']), /1 new item\./);
+});
+test('rotation reads paginate and database errors do not produce fabricated additions', async () => {
+    let calls = 0;
+    const query = { select(){return this;}, eq(){return this;}, order(){return this;}, async range(start){ calls++; return {data:start === 0 ? Array.from({length:500},(_,i)=>entry(i).sale) : [],error:null}; } };
+    assert.equal((await readActiveRotations({from:()=>query})).length,1500);
+    assert.equal(calls,6);
+    await assert.rejects(readActiveRotations({from:()=>({...query,range:async()=>({error:{message:'offline'}})})}), /Cannot read CatalogSale/);
+});
+test('change announcements bypass routine success suppression and suppress mentions', async t => {
+    const previous = {...process.env};
+    Object.assign(process.env,{INGESTION_LOCAL_ONLY:'false',DISCORD_SUCCESS_ENABLED:'false',DISCORD_WEBHOOK_URL:'https://discord.invalid/test',DISCORD_MENTION_ROLE_ID:'123'});
+    t.after(()=>{for(const key of ['INGESTION_LOCAL_ONLY','DISCORD_SUCCESS_ENABLED','DISCORD_WEBHOOK_URL','DISCORD_MENTION_ROLE_ID']){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}});
+    const payloads=[];
+    t.mock.method(globalThis,'fetch',async (_url,options)=>{payloads.push(JSON.parse(options.body));return new Response(null,{status:204});});
+    const logger=new DiscordLogger('processClientData');
+    await logger.finish();
+    assert.equal(payloads.length,0);
+    await logger.rotationUpdate('Rotation update succeeded: 1 new item.\n• Catalog: Example');
+    assert.equal(payloads.length,1);
+    assert.deepEqual(payloads[0].allowed_mentions,{parse:[]});
+    assert.equal(payloads[0].content,undefined);
+    process.env.INGESTION_LOCAL_ONLY='true';
+    await logger.rotationUpdate('test');
+    assert.equal(payloads.length,1);
+});

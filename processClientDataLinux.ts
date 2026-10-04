@@ -21,6 +21,7 @@ import { supabase } from './lib/supabaseLinux.ts';
 import { DiscordLogger } from './lib/discordLoggerLinux.ts';
 import { createSanctumBannerImageUrl } from './lib/images.ts';
 import { dedupeCatalogSales } from './lib/catalogSales.ts';
+import { readActiveRotations, newRotationItems, describeRotationItems } from './lib/rotationNotifications.js';
 import { refreshPublicApi } from './lib/refreshPublicApiLinux.ts';
 import {
     isActiveYourShopStatus,
@@ -643,6 +644,14 @@ async function main() {
     if (!clientSnapshot && process.env.CLIENT_REQUIRE_SNAPSHOT === 'true') {
         throw new Error('A fresh clientSnapshot.json is required. Run the collector first.');
     }
+    let rotationsBefore: Awaited<ReturnType<typeof readActiveRotations>> | undefined;
+    if (!isLocalMode()) {
+        try { rotationsBefore = await readActiveRotations(supabase); }
+        catch (error) {
+            console.warn('Rotation notification comparison unavailable:', error);
+            await logger.warn('Could not read rotations before processing; change notification skipped.');
+        }
+    }
     const sales = dedupeCatalogSales(processCatalogSales());
     const catalogSaved = await upsertCatalogSales(sales);
     const catalogExpired = await deactivateOldSales('CatalogSale');
@@ -673,6 +682,17 @@ async function main() {
         sanctumResult.success && sanctumSaved && sanctumExpired && yourShopSynced;
     if (allSaved) {
         await refreshPublicApi(logger);
+        if (rotationsBefore) {
+            try {
+                const additions = newRotationItems(rotationsBefore, await readActiveRotations(supabase));
+                if (additions.length > 0) {
+                    await logger.rotationUpdate(await describeRotationItems(supabase, additions));
+                }
+            } catch (error) {
+                console.warn('Rotation change notification failed:', error);
+                await logger.warn('Failed to prepare or send rotation change notification.');
+            }
+        }
     } else {
         process.exitCode = 1;
         await logger.error('Client data processing was incomplete.');

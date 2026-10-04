@@ -14,6 +14,8 @@ function run(executable, ...args) {
 }
 if (command === 'check') {
     console.log('Production configuration valid; no connections made.');
+} else if (command === 'upload-log') {
+    run(process.execPath, 'uploadLogFileLinux.ts', process.argv[3]);
 } else if (command === 'report-status') {
     run(process.execPath, 'scripts/reportLinuxRun.mjs');
 } else if (command === 'direct' || command === 'static') {
@@ -29,5 +31,5 @@ if (command === 'check') {
         run(process.execPath, 'processClientDataLinux.ts');
     }
 } else {
-    throw new Error('Use check, direct, static, or report-status.');
+    throw new Error('Use check, direct, static, report-status, or upload-log.');
 }

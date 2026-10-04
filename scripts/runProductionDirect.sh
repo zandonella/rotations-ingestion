@@ -3,7 +3,6 @@
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-node scripts/productionRun.mjs check
 mkdir -p data/run
 chmod 700 data/run
 exec 9>data/run/direct.lock
@@ -12,9 +11,31 @@ if ! flock -n 9; then
     exit 0
 fi
 
+mkdir -p data/logs
+chmod 700 data/logs
+log_path="data/logs/sales_$(date -u +%Y-%m-%dT%H-%M-%SZ)_$$.log"
+# Keep journal output while retaining a complete local copy of this run.
+exec 3>&1 4>&2
+exec > >(tee "$log_path") 2>&1
+log_tee_pid=$!
+finish_run() {
+    result=$?
+    trap - EXIT
+    rm -f data/run/production-run.pid
+    echo "$(date -u +%FT%TZ) Sales run completed with exit code $result."
+    # Close the tee pipe and wait for all output before reading the file for upload.
+    exec 1>&3 2>&4
+    wait "$log_tee_pid" || true
+    if ! timeout --kill-after=5s 30s node scripts/productionRun.mjs upload-log "$log_path"; then
+        echo "WARNING: Sales log upload failed; local log retained at $ROOT/$log_path." >&2
+    fi
+    exit "$result"
+}
+trap finish_run EXIT
+node scripts/productionRun.mjs check
 printf '%s\n' "$$" > data/run/production-run.pid
-trap 'rm -f data/run/production-run.pid' EXIT
 attempt=1
+run_started_at="$(date -u +%FT%TZ)"
 
 export INGESTION_POLL_INTERVAL_MINUTES=30
 export RIOT_CLIENT_LOCKFILE="${RIOT_CLIENT_LOCKFILE:-$ROOT/../wine/prefix/drive_c/users/$(id -un)/AppData/Local/Riot Games/Riot Client/Config/lockfile}"
@@ -46,6 +67,12 @@ for attempt in 1 2 3; do
     # Each attempt collects fresh data. A collector failure never runs processing.
     if timeout --kill-after=10s 180s node scripts/productionRun.mjs direct; then
         write_status ok "$attempt"
+        # Publish only after the pull succeeds; the host email service follows this slot.
+        node --input-type=module - "$run_started_at" <<'JS'
+import fs from 'node:fs';
+fs.writeFileSync('data/run/email-pull.json.tmp', JSON.stringify({ startedAt: process.argv[2], completedAt: new Date().toISOString() }), { mode: 0o600 });
+fs.renameSync('data/run/email-pull.json.tmp', 'data/run/email-pull.json');
+JS
         exit 0
     else
         result=$?

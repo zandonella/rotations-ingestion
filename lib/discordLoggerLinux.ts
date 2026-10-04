@@ -82,6 +82,10 @@ export class DiscordLogger {
         );
     }
 
+    async rotationUpdate(context: string) {
+        await this.sendMessage('OK', context, true);
+    }
+
     private recordIssue(level: IssueLevel, context: string) {
         this.issues.push({ level, context: oneLine(context) });
     }
@@ -123,8 +127,9 @@ export class DiscordLogger {
     private async sendMessage(
         level: DiscordLogLevel,
         context: string,
+        rotationUpdate = false,
     ) {
-        if (isLocalMode() || (level === 'OK' && process.env.DISCORD_SUCCESS_ENABLED === 'false')) return;
+        if (isLocalMode() || (level === 'OK' && !rotationUpdate && process.env.DISCORD_SUCCESS_ENABLED === 'false')) return;
         const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
 
         if (!webhookUrl) {
@@ -153,11 +158,11 @@ export class DiscordLogger {
                     ? {
                           roles: [mentionRoleId],
                       }
-                    : undefined,
+                    : { parse: [] },
                 embeds: [
                     {
                         title: `${level}: ${this.scriptName}`,
-                        description: truncate(context, 2048),
+                        description: truncate(context, rotationUpdate ? 4096 : 2048),
                         color: levelColors[level],
                         timestamp: new Date().toISOString(),
                     },

@@ -20,6 +20,10 @@ test('ingestion hints reflect public data results before operational bookkeeping
         else process.env.INGESTION_POLL_INTERVAL_MINUTES = previousPollMinutes;
     });
 
+    t.mock.module('../lib/rotationNotifications.js', { namedExports: {
+        readActiveRotations: async () => [], newRotationItems: () => [{}], describeRotationItems: async () => 'new items',
+    } });
+
     let scenario: { fail?: string; empty?: boolean; missingMythic?: boolean; missingSanctum?: boolean; failedYourShop?: boolean; hintFails?: boolean; wakeFails?: boolean };
     let events: string[];
     let heartbeat: { next_expected_at: string; message: string } | undefined;
@@ -35,6 +39,7 @@ test('ingestion hints reflect public data results before operational bookkeeping
                 hasWarnings = false;
                 warn() {}
                 error() {}
+                async rotationUpdate() { events.push('rotation-notification'); }
                 async finish() { finish(); }
             },
         },
@@ -134,6 +139,7 @@ test('ingestion hints reflect public data results before operational bookkeeping
     for (const settings of [{}, { empty: true }, { fail: 'ingestion_heartbeat.upsert' }, { hintFails: true }, { wakeFails: true }]) {
         const result = await execute('processClientData', settings);
         assert.equal(result.filter(event => event === 'hint').length, 1);
+        assert.equal(result.filter(event => event === 'rotation-notification').length, 1);
         assert.ok(result.indexOf('hint') < result.indexOf('ingestion_heartbeat.upsert'));
         if (result.includes('wake')) assert.ok(result.indexOf('hint') < result.indexOf('wake'));
         assert.equal(process.exitCode, settings.wakeFails ? 1 : 0);
@@ -144,7 +150,9 @@ test('ingestion hints reflect public data results before operational bookkeeping
         'CatalogItem.select', 'SanctumSale.upsert', 'SanctumSale.update',
         'YourShopSale.update', 'YourShopSale.upsert',
     ]) {
-        assert.equal((await execute('processClientData', { fail })).includes('hint'), false, fail);
+        const failedEvents = await execute('processClientData', { fail });
+        assert.equal(failedEvents.includes('hint'), false, fail);
+        assert.equal(failedEvents.includes('rotation-notification'), false, fail);
     }
     for (const settings of [{ missingMythic: true }, { missingSanctum: true }, { failedYourShop: true }]) {
         assert.equal((await execute('processClientData', settings)).includes('hint'), false);

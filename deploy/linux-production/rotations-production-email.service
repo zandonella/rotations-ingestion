@@ -1,0 +1,9 @@
+[Unit]
+Description=Rotations hourly wishlist emails after successful on-the-hour ingestion
+
+[Service]
+Type=oneshot
+WorkingDirectory=@EMAIL_ROOT@
+ExecStart=/usr/bin/bash @EMAIL_ROOT@/scripts/runHourlyBatch.sh
+UMask=0077
+TimeoutStartSec=25min
