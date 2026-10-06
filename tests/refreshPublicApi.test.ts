@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { refreshPublicApi } from '../lib/refreshPublicApi.ts';
+import { refreshPublicApiWithClient } from '../lib/publicApiUpdate.js';
 
-test('refresh hints are optional, bodyless, bounded, and warning-only', async t => {
+test('confirmed state always publishes and only actual changes send optional bounded hints', async t => {
     const originalUrl = process.env.ROTATIONS_API_REFRESH_URL;
     const originalSecret = process.env.ROTATIONS_API_REFRESH_SECRET;
     t.after(() => {
@@ -11,6 +11,9 @@ test('refresh hints are optional, bodyless, bounded, and warning-only', async t 
         if (originalSecret === undefined) delete process.env.ROTATIONS_API_REFRESH_SECRET;
         else process.env.ROTATIONS_API_REFRESH_SECRET = originalSecret;
     });
+    let changed = true;
+    const db = { async rpc(name: string) { assert.equal(name, 'record_public_api_state'); return { data: changed, error: null }; } };
+    const refreshPublicApi = (logger: { warn(message: string): void }) => refreshPublicApiWithClient(logger, db);
     const warnings: string[] = [];
     const logger = { warn: (message: string) => { warnings.push(message); } };
     t.mock.method(console, 'warn', () => {});
@@ -26,6 +29,10 @@ test('refresh hints are optional, bodyless, bounded, and warning-only', async t 
     assert.equal(fetchMock.mock.callCount(), 0);
     process.env.ROTATIONS_API_REFRESH_SECRET = 'test-refresh-secret';
     assert.equal(await refreshPublicApi(logger), true);
+    changed = false;
+    assert.equal(await refreshPublicApi(logger), false);
+    assert.equal(fetchMock.mock.callCount(), 1);
+    changed = true;
     const [url, options] = fetchMock.mock.calls[0].arguments as [string, RequestInit];
     assert.equal(url, process.env.ROTATIONS_API_REFRESH_URL);
     assert.equal(options.method, 'POST');
@@ -49,4 +56,13 @@ test('refresh hints are optional, bodyless, bounded, and warning-only', async t 
     assert.equal(await refreshPublicApi(logger), false);
     assert.equal(warnings.length, 4);
     assert.doesNotMatch(warnings.join('\n'), /test-refresh-secret|private-routing|secret response/);
+    const calls = fetchMock.mock.callCount();
+    assert.equal(await refreshPublicApiWithClient(logger, db, false), false);
+    assert.equal(fetchMock.mock.callCount(), calls, 'Local publication must not send a hint.');
+    assert.equal(await refreshPublicApiWithClient(logger, {
+        async rpc() { return { data: null, error: { message: 'private-routing test-refresh-secret' } }; },
+    }), false);
+    assert.equal(fetchMock.mock.callCount(), calls);
+    assert.equal(warnings.length, 5);
+    assert.doesNotMatch(warnings.join('\n'), /test-refresh-secret|private-routing/);
 });

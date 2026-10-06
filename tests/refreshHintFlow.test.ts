@@ -37,6 +37,11 @@ test('ingestion hints reflect public data results before operational bookkeeping
     t.mock.module('../lib/supabase.ts', {
         namedExports: {
             supabase: {
+                async rpc(name: string) {
+                    assert.equal(name, 'record_public_api_state');
+                    events.push('public-state');
+                    return { data: true, error: scenario.fail === 'public-state' ? { message: 'Publication failed.' } : null };
+                },
                 from(table: string) {
                     let operation = '';
                     let columns = '';
@@ -124,13 +129,14 @@ test('ingestion hints reflect public data results before operational bookkeeping
     for (const settings of [{}, { empty: true }, { fail: 'ingestion_heartbeat.upsert' }, { hintFails: true }, { wakeFails: true }]) {
         const result = await execute('processClientData', settings);
         assert.equal(result.filter(event => event === 'hint').length, 1);
+        assert.ok(result.includes('public-state'));
         assert.ok(result.indexOf('hint') < result.indexOf('ingestion_heartbeat.upsert'));
         if (result.includes('wake')) assert.ok(result.indexOf('hint') < result.indexOf('wake'));
         assert.equal(process.exitCode, settings.wakeFails ? 1 : 0);
     }
 
     for (const fail of [
-        'CatalogSale.upsert', 'CatalogSale.update', 'MythicSale.upsert', 'MythicSale.update',
+        'public-state', 'CatalogSale.upsert', 'CatalogSale.update', 'MythicSale.upsert', 'MythicSale.update',
         'CatalogItem.select', 'SanctumSale.upsert', 'SanctumSale.update',
         'YourShopSale.update', 'YourShopSale.upsert',
     ]) {

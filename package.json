@@ -16,6 +16,7 @@
         "local:static": "node scripts/localRun.mjs static",
         "test:linux": "node --test tests/linuxCollector.test.mjs tests/productionConfig.test.mjs tests/productionStop.test.mjs tests/productionLogs.test.mjs tests/riotPause.test.mjs && node --experimental-test-module-mocks --test tests/refreshHintFlowLinux.test.ts && node --test tests/rotationNotifications.test.mjs",
         "test:local-db": "node tests/localDatabaseSmoke.mjs",
+        "test:public-api-db": "node tests/publicApiStateDatabase.mjs",
         "linux:prod:check": "node scripts/productionRun.mjs check",
         "linux:prod:refresh": "bash scripts/runProductionDirect.sh"
     },

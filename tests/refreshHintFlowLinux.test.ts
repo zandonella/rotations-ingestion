@@ -47,6 +47,11 @@ test('ingestion hints reflect public data results before operational bookkeeping
     t.mock.module('../lib/supabaseLinux.ts', {
         namedExports: {
             supabase: {
+                async rpc(name: string) {
+                    assert.equal(name, 'record_public_api_state');
+                    events.push('public-state');
+                    return { data: true, error: scenario.fail === 'public-state' ? { message: 'Publication failed.' } : null };
+                },
                 from(table: string) {
                     let operation = '';
                     let columns = '';
@@ -139,6 +144,7 @@ test('ingestion hints reflect public data results before operational bookkeeping
     for (const settings of [{}, { empty: true }, { fail: 'ingestion_heartbeat.upsert' }, { hintFails: true }, { wakeFails: true }]) {
         const result = await execute('processClientData', settings);
         assert.equal(result.filter(event => event === 'hint').length, 1);
+        assert.ok(result.includes('public-state'));
         assert.equal(result.filter(event => event === 'rotation-notification').length, 1);
         assert.ok(result.indexOf('hint') < result.indexOf('ingestion_heartbeat.upsert'));
         if (result.includes('wake')) assert.ok(result.indexOf('hint') < result.indexOf('wake'));
@@ -154,6 +160,7 @@ test('ingestion hints reflect public data results before operational bookkeeping
         assert.equal(failedEvents.includes('hint'), false, fail);
         assert.equal(failedEvents.includes('rotation-notification'), false, fail);
     }
+    assert.equal((await execute('processClientData', { fail: 'public-state' })).includes('hint'), false);
     for (const settings of [{ missingMythic: true }, { missingSanctum: true }, { failedYourShop: true }]) {
         assert.equal((await execute('processClientData', settings)).includes('hint'), false);
     }

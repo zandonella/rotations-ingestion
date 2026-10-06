@@ -21,7 +21,7 @@ These exit 75 and stop immediate retries. Clear that file only after resolving
 the issue. This controls Node collection, not Riot Client internal retries.
 Routine success messages are disabled. Warnings/errors and remote monitoring
 remain available. OG builds queue only when active sale content changes; dispatch
-is asynchronous. API refresh hints are optional, with periodic API refresh as fallback.
+is asynchronous. Public cache revisions are published after successful complete pulls. Optional API hints fire only when a revision changes. The API fallback reads one small public state row every half hour.
 
 ## Initial setup
 
@@ -53,6 +53,16 @@ systemctl --user enable --now rotations-production-direct.timer
 
 Verify production shops and heartbeat before enabling the timer. Full host reboot
 needs a supervised check. The signed-in session survived supervised client restart.
+
+## Public API cache revisions
+
+Apply `supabase/migrations/20261005000000_add_public_api_state.sql` and then `supabase/migrations/20261005010000_add_public_api_catalog_deltas.sql` before deploying the ingestion and API changes. Deploy ingestion next and verify that a successful complete pull populates `public_api_state` with a positive `catalog_revision` and initializes `public_api_catalog_item`. Deploy the API after that. All production migration and deployment steps require the owner's explicit approval.
+
+The singleton records `catalog`, `sales`, `mythic`, `sanctum`, and `yourShop` fingerprints, a catalog revision, the last successful check time, and the most recent changed sections. Comparison happens inside Postgres and includes public metadata, prices, dates, active flags, additions, and removals. Identical upserts do not advance fingerprints or the catalog revision. The API compares every fingerprint to its own saved state, so missing a hint or several pulls cannot lose an update.
+
+Confirmed catalog changes update only affected rows in `public_api_catalog_item`. Each row contains the public Item JSON and its last changed revision. Deleted items retain their ID and revision with null JSON. Lookup changes update affected item representations. The API reads only changes since its saved revision, applies them to its local catalog, and reuses unchanged rotations. There is one latest row per unique item ID, so repeated pulls do not accumulate history. The publisher briefly locks the five catalog source tables against writes to keep the cache and fingerprint consistent. A failed publication rolls back cache and manifest together. No Edge Function is required.
+
+Publication happens even if the optional hint URL and secret are unset. Unchanged pulls produce no HTTP hint. A failed hint leaves the manifest available to the API fallback. A publication failure is a warning, and the next successful pull retries publication. Preserve the API data volume because it holds the catalog, confirmed fingerprints, and catalog revision. An initial installation or missing source-state file requires one complete synchronization. An older valid source-state file without a catalog revision requires one catalog synchronization while reusing unchanged rotations. Delta download failures preserve the snapshot and retry without requesting the full catalog.
 
 ## Operations
 
