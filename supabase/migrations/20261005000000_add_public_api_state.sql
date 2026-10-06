@@ -115,6 +115,6 @@ BEGIN
     RETURN cardinality(sections) > 0;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.record_public_api_state() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.record_public_api_state() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.record_public_api_state() TO service_role;
 NOTIFY pgrst, 'reload schema';

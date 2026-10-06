@@ -56,7 +56,9 @@ needs a supervised check. The signed-in session survived supervised client resta
 
 ## Public API cache revisions
 
-Apply `supabase/migrations/20261005000000_add_public_api_state.sql` and then `supabase/migrations/20261005010000_add_public_api_catalog_deltas.sql` before deploying the ingestion and API changes. Deploy ingestion next and verify that a successful complete pull populates `public_api_state` with a positive `catalog_revision` and initializes `public_api_catalog_item`. Deploy the API after that. All production migration and deployment steps require the owner's explicit approval.
+Apply `supabase/migrations/20261005000000_add_public_api_state.sql`, `supabase/migrations/20261005010000_add_public_api_catalog_deltas.sql`, and `supabase/migrations/20261005020000_restrict_public_api_publisher.sql` in that order before deploying the ingestion and API changes. Deploy ingestion next and verify that a successful complete pull populates `public_api_state` with a positive `catalog_revision` and initializes `public_api_catalog_item`. Deploy the API after that. All production migration and deployment steps require the owner's explicit approval.
+
+The permission migration explicitly revokes Supabase default client-role execution grants on the private publisher.
 
 The singleton records `catalog`, `sales`, `mythic`, `sanctum`, and `yourShop` fingerprints, a catalog revision, the last successful check time, and the most recent changed sections. Comparison happens inside Postgres and includes public metadata, prices, dates, active flags, additions, and removals. Identical upserts do not advance fingerprints or the catalog revision. The API compares every fingerprint to its own saved state, so missing a hint or several pulls cannot lose an update.
 
