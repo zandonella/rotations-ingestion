@@ -26,7 +26,7 @@ test('ingestion hints reflect public data results before operational bookkeeping
 
     let scenario: { fail?: string; empty?: boolean; missingMythic?: boolean; missingSanctum?: boolean; failedYourShop?: boolean; hintFails?: boolean; wakeFails?: boolean };
     let events: string[];
-    let heartbeat: { next_expected_at: string; message: string } | undefined;
+    let heartbeat: { next_expected_at: string; message: string; status: string } | undefined;
     let finish: () => void;
     t.mock.method(console, 'log', () => {});
     t.mock.method(console, 'warn', () => {});
@@ -178,6 +178,16 @@ test('ingestion hints reflect public data results before operational bookkeeping
     assert.equal(heartbeat?.next_expected_at, '2026-09-22T12:30:00.000Z');
     assert.match(heartbeat?.message ?? '', /Polling every 30 minutes/);
     assert.equal(process.exitCode, 0);
+    process.env.COMMUNITY_DRAGON_ESCALATED = 'true';
+    process.env.COMMUNITY_DRAGON_WARNING = 'CommunityDragon outage has exceeded three hours.';
+    const escalatedEvents = await execute('processClientData', {});
+    assert.equal(heartbeat?.status, 'error');
+    assert.match(heartbeat?.message ?? '', /CommunityDragon outage/);
+    assert.equal(process.exitCode, 0);
+    assert.equal(escalatedEvents.includes('hint'), true);
+    assert.equal(escalatedEvents.includes('rotation-notification'), true);
+    delete process.env.COMMUNITY_DRAGON_ESCALATED;
+    delete process.env.COMMUNITY_DRAGON_WARNING;
     process.env.INGESTION_POLL_INTERVAL_MINUTES = 'invalid';
     assert.deepEqual(await execute('processClientData', {}), []);
     assert.equal(process.exitCode, 1);

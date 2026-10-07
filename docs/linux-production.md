@@ -12,7 +12,12 @@ The systemd user timer runs full collection at :00/:30 UTC inside the container.
 A process lock prevents overlap. Static catalog data refreshes once per UTC day
 before collection. CommunityDragon downloads have a shared 60-second budget and
 stage/validate responses before replacing cached files. Upstream failures warn,
-keep existing metadata, and retry at most hourly without blocking sales. Local
+keep existing metadata, and retry at most hourly without blocking sales. Staff
+mentions are error-only. Six half-hour warning periods and a three-hour outage
+escalate the processing heartbeat to error; the monitor sends one staff ping on
+that state transition. Further pulls keep the heartbeat in error until metadata
+refresh recovers, while collection remains successful. Same-slot retries do not
+inflate the warning count. Local
 processing failures still fail. Catalog upserts perform no item lookup unless the
 CatalogItem foreign-key constraint fails; fallback queries select only identity
 columns in batches and cache confirmed identities locally. Missing metadata skips

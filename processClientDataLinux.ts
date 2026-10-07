@@ -629,7 +629,8 @@ async function writeHeartbeat(nextExpectedAt: Date, message?: string) {
         script_name: 'processClientData',
         last_run_at: new Date().toISOString(),
         next_expected_at: nextExpectedAt.toISOString(),
-        status: logger.hasErrors ? 'error' : logger.hasWarnings ? 'warn' : 'ok',
+        // The monitor owns the single staff escalation; collection remains successful.
+        status: (logger.hasErrors || process.env.COMMUNITY_DRAGON_ESCALATED === 'true') ? 'error' : logger.hasWarnings ? 'warn' : 'ok',
         message: [message, metadataWarning, affectedItems ? `${affectedItems} sales skipped for missing item metadata; see run log for identities.` : undefined].filter(Boolean).join(' ') || null,
     });
 

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { refreshCommunityDragon } from '../lib/communityDragonRefresh.js';
+import { refreshCommunityDragon, communityDragonEscalated } from '../lib/communityDragonRefresh.js';
 function fixture(t) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cdragon-refresh-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -77,4 +77,31 @@ done
     assert.equal(fs.readFileSync(path.join(f.root, 'data/source/finishers.json'), 'utf8').trim(), '[]');
     assert.equal(fs.readFileSync(path.join(f.root, 'processed'), 'utf8'), 'yes');
     assert.equal(fs.readdirSync(path.join(f.root, 'data/source')).length, 8);
+});
+
+test('six warning periods escalate at three hours, stay escalated, and reset after recovery', t => {
+    const root = fixture(t), start = Date.parse('2026-10-07T00:00:00Z');
+    let downloads = 0;
+    const fail = () => { downloads++; return { status: 76 }; };
+    for (let period = 0; period < 6; period++) {
+        refreshCommunityDragon(root, fail, start + period * 30 * 60_000);
+        assert.equal(communityDragonEscalated(root), false);
+        // Same-slot retries cannot inflate the warning count.
+        refreshCommunityDragon(root, fail, start + period * 30 * 60_000 + 1000);
+    }
+    const file = path.join(root, 'data/run/communitydragon-retry.json');
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).consecutiveWarnings, 6);
+    assert.equal(downloads, 3);
+    refreshCommunityDragon(root, fail, start + 3 * 3_600_000);
+    assert.equal(communityDragonEscalated(root), true);
+    for (let period = 7; period < 12; period++) {
+        refreshCommunityDragon(root, fail, start + period * 30 * 60_000);
+        assert.equal(communityDragonEscalated(root), true);
+    }
+    refreshCommunityDragon(root, () => ({ status: 0 }), start + 6 * 3_600_000);
+    assert.equal(communityDragonEscalated(root), false);
+    assert.equal(fs.existsSync(file), false);
+    refreshCommunityDragon(root, fail, start + 24 * 3_600_000);
+    assert.equal(communityDragonEscalated(root), false);
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).consecutiveWarnings, 1);
 });

@@ -156,6 +156,7 @@ export class DiscordLogger {
                 content,
                 allowed_mentions: mentionRoleId
                     ? {
+                          parse: [],
                           roles: [mentionRoleId],
                       }
                     : { parse: [] },

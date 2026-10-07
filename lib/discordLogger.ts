@@ -149,9 +149,10 @@ export class DiscordLogger {
                 content,
                 allowed_mentions: mentionRoleId
                     ? {
+                          parse: [],
                           roles: [mentionRoleId],
                       }
-                    : undefined,
+                    : { parse: [] },
                 embeds: [
                     {
                         title: `${level}: ${this.scriptName}`,

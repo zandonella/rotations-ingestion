@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 import { spawnSync } from 'node:child_process';
-import { refreshCommunityDragon } from '../lib/communityDragonRefresh.js';
+import { refreshCommunityDragon, communityDragonEscalated } from '../lib/communityDragonRefresh.js';
 import { productionEnvironment } from '../lib/productionConfig.js';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const config = parseEnv(fs.readFileSync(path.join(root, '.env.linux.prod'), 'utf8'));
@@ -27,6 +27,7 @@ if (command === 'check') {
     if (warning) {
         console.warn(`WARNING: ${warning}`);
         env.COMMUNITY_DRAGON_WARNING = warning;
+        env.COMMUNITY_DRAGON_ESCALATED = String(communityDragonEscalated(root));
     }
     if (command === 'direct') {
         run(process.execPath, 'scripts/collectDirect.mjs');
