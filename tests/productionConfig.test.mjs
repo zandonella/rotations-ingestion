@@ -28,7 +28,7 @@ test('production runs static daily, and failures stop dependent processing', () 
         fs.mkdirSync(path.join(root, 'scripts'));
         fs.mkdirSync(path.join(root, 'lib'));
         fs.writeFileSync(path.join(root, 'package.json'), '{"type":"module"}');
-        for (const file of ['scripts/productionRun.mjs', 'lib/productionConfig.js']) {
+        for (const file of ['scripts/productionRun.mjs', 'lib/productionConfig.js', 'lib/communityDragonRefresh.js']) {
             fs.copyFileSync(new URL(`../${file}`, import.meta.url), path.join(root, file));
         }
         fs.writeFileSync(path.join(root, '.env.linux.prod'), 'SUPABASE_URL=https://example.supabase.co\nSUPABASE_KEY=test\nRIOT_CLIENT_LOCKFILE=/runtime/lockfile\n');
@@ -48,6 +48,16 @@ test('production runs static daily, and failures stop dependent processing', () 
         fs.writeFileSync(path.join(root, 'fail-static'), '');
         assert.equal(run().status, 1);
         assert.equal(fs.readFileSync(path.join(root, 'calls'), 'utf8'), 'static\n');
+        assert.equal(fs.existsSync(path.join(root, 'data/run/production-static-date')), false);
+        fs.unlinkSync(path.join(root, 'fail-static'));
+        fs.unlinkSync(path.join(root, 'fail-collect'));
+        fs.writeFileSync(path.join(root, 'calls'), '');
+        fs.writeFileSync(path.join(root, 'environmentSetupLinux.sh'), 'echo static >> calls\nexit 76\n');
+        fs.writeFileSync(path.join(root, 'processClientDataLinux.ts'), "import fs from 'node:fs'; fs.appendFileSync('calls', 'process\\n'); fs.writeFileSync('warning', process.env.COMMUNITY_DRAGON_WARNING || '');");
+        assert.equal(run().status, 0);
+        assert.match(fs.readFileSync(path.join(root, 'warning'), 'utf8'), /CommunityDragon unavailable/);
+        assert.equal(run().status, 0);
+        assert.equal(fs.readFileSync(path.join(root, 'calls'), 'utf8'), 'static\ncollect\nprocess\ncollect\nprocess\n');
         assert.equal(fs.existsSync(path.join(root, 'data/run/production-static-date')), false);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

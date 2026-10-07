@@ -20,6 +20,7 @@ import type {
 import { supabase } from './lib/supabaseLinux.ts';
 import { DiscordLogger } from './lib/discordLoggerLinux.ts';
 import { createSanctumBannerImageUrl } from './lib/images.ts';
+import { upsertCatalogWithFallback } from './lib/catalogSaleFallback.js';
 import { dedupeCatalogSales } from './lib/catalogSales.ts';
 import { readActiveRotations, newRotationItems, describeRotationItems } from './lib/rotationNotifications.js';
 import { refreshPublicApi } from './lib/refreshPublicApiLinux.ts';
@@ -29,6 +30,25 @@ import {
 } from './lib/yourShop.ts';
 
 const logger = new DiscordLogger('processClientData');
+const metadataWarning = process.env.COMMUNITY_DRAGON_WARNING;
+if (metadataWarning) logger.warn(metadataWarning);
+let affectedItems = 0;
+
+let catalogNames: Map<string, string> | undefined;
+function warnMissingItem(shop: string, id: string | number, type?: number) {
+    if (shop === 'Catalog' && !catalogNames) {
+        const catalog = JSON.parse(readSource('catalog')) as Array<RawCatalogSale & { localizations?: { en_US?: { name?: string } } }>;
+        catalogNames = new Map(catalog.map(item => [
+            `${getItemTypeByName(item.subInventoryType === 'RECOLOR' ? item.subInventoryType : item.inventoryType)}:${item.itemId}`,
+            item.localizations?.en_US?.name ?? '',
+        ]));
+    }
+    const label = shop === 'Catalog' ? catalogNames?.get(`${type}:${id}`) : undefined;
+    const detail = `Skipped ${shop} sale: ${label ? `${label}; ` : ''}item ${id}${type === undefined ? '' : `, type ${type}`}; missing CatalogItem metadata. Will retry on later pulls.`;
+    affectedItems += 1;
+    console.warn(detail);
+    logger.warn(detail);
+}
 
 function readSource(name: string): string {
     if (clientSnapshot) return JSON.stringify(clientSnapshot[name]);
@@ -341,13 +361,7 @@ async function processSanctumBanners(): Promise<{
         const matchingTypes = itemTypesByRiotId.get(riotItemId) ?? [];
 
         if (matchingTypes.length === 0) {
-            success = false;
-            console.warn(
-                `Skipping Sanctum banner ${riotItemId}: no matching CatalogItem row.`,
-            );
-            await logger.warn(
-                `Skipping Sanctum banner ${riotItemId}: no matching CatalogItem row.`,
-            );
+            warnMissingItem('Sanctum', riotItemId);
             continue;
         }
 
@@ -407,18 +421,24 @@ function processYourShopStatus():
 
 // upsert functions
 async function upsertCatalogSales(sales: CatalogSaleRecord[]) {
-    if (sales.length === 0) return true;
-    const { error } = await supabase.from('CatalogSale').upsert(sales, {
-        onConflict: 'ItemType,RiotItemID,SaleStartAt',
-    });
-
-    if (error) {
+    try {
+        const directory = process.env.CLIENT_DATA_DIRECTORY || path.join(path.dirname(fileURLToPath(import.meta.url)), 'data/source');
+        await upsertCatalogWithFallback(sales, {
+            cacheFile: isLocalMode() ? undefined : path.join(directory, 'catalog-confirmed-items.json'),
+            upsert: (rows: CatalogSaleRecord[]) => supabase.from('CatalogSale').upsert(rows, {
+                onConflict: 'ItemType,RiotItemID,SaleStartAt',
+            }),
+            lookup: (type: number, ids: number[]) => supabase.from('CatalogItem')
+                .select('ItemType,RiotItemID').eq('ItemType', type).in('RiotItemID', ids),
+            warn: (row: CatalogSaleRecord) => warnMissingItem('Catalog', row.RiotItemID, row.ItemType),
+        });
+        console.log('Catalog sales upserted successfully.');
+        return true;
+    } catch (error) {
         console.error('Error upserting catalog sales:', error);
         await logger.error('Error upserting catalog sales.');
-    } else {
-        console.log('Catalog sales upserted successfully.');
+        return false;
     }
-    return !error;
 }
 
 async function upsertMythicSales(sales: MythicSaleRecord[]) {
@@ -448,25 +468,12 @@ async function upsertMythicSales(sales: MythicSaleRecord[]) {
     );
 
     if (skippedSales.length > 0) {
-        const skippedSaleDetails = skippedSales.map((s) => ({
-            OfferID: s.OfferID,
-            PrimaryItemID: s.PrimaryItemID,
-            Section: s.Section,
-            BundleType: s.BundleType,
-        }));
-
-        console.warn(
-            'Skipping mythic sales with missing CatalogItem rows:',
-            skippedSaleDetails,
-        );
-        await logger.warn(
-            'Skipping mythic sales with missing CatalogItem rows.',
-        );
+        for (const sale of skippedSales) warnMissingItem('Mythic Shop', sale.PrimaryItemID);
     }
 
     if (validSales.length === 0) {
         console.log('No valid mythic sales to upsert.');
-        return false;
+        return true;
     }
 
     const { error } = await supabase.from('MythicSale').upsert(validSales, {
@@ -479,7 +486,7 @@ async function upsertMythicSales(sales: MythicSaleRecord[]) {
     } else {
         console.log('Mythic sales upserted successfully.');
     }
-    return !error && skippedSales.length === 0;
+    return !error;
 }
 
 async function upsertSanctumSales(sales: SanctumSaleRecord[]) {
@@ -623,7 +630,7 @@ async function writeHeartbeat(nextExpectedAt: Date, message?: string) {
         last_run_at: new Date().toISOString(),
         next_expected_at: nextExpectedAt.toISOString(),
         status: logger.hasErrors ? 'error' : logger.hasWarnings ? 'warn' : 'ok',
-        message: message ?? null,
+        message: [message, metadataWarning, affectedItems ? `${affectedItems} sales skipped for missing item metadata; see run log for identities.` : undefined].filter(Boolean).join(' ') || null,
     });
 
     if (error) {

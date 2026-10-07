@@ -87,6 +87,8 @@ test('ingestion hints reflect public data results before operational bookkeeping
     t.mock.module('fs', {
         defaultExport: {
             existsSync() { return false; },
+            writeFileSync() {},
+            renameSync() {},
             readFileSync(path: string) {
                 const start = new Date(Date.now() - 60_000).toISOString();
                 const end = new Date(Date.now() + 60_000).toISOString();
@@ -161,9 +163,13 @@ test('ingestion hints reflect public data results before operational bookkeeping
         assert.equal(failedEvents.includes('rotation-notification'), false, fail);
     }
     assert.equal((await execute('processClientData', { fail: 'public-state' })).includes('hint'), false);
-    for (const settings of [{ missingMythic: true }, { missingSanctum: true }, { failedYourShop: true }]) {
-        assert.equal((await execute('processClientData', settings)).includes('hint'), false);
+    for (const settings of [{ missingMythic: true }, { missingSanctum: true }]) {
+        const result = await execute('processClientData', settings);
+        assert.equal(result.includes('hint'), true);
+        assert.equal(result.includes('rotation-notification'), true);
+        assert.equal(process.exitCode, 0);
     }
+    assert.equal((await execute('processClientData', { failedYourShop: true })).includes('hint'), false);
 
     process.env.INGESTION_POLL_INTERVAL_MINUTES = '30';
     const pollingEvents = await execute('processClientData', {});

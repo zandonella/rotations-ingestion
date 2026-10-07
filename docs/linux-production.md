@@ -10,7 +10,15 @@ Wine sessions, network details, and database backups stay outside Git.
 
 The systemd user timer runs full collection at :00/:30 UTC inside the container.
 A process lock prevents overlap. Static catalog data refreshes once per UTC day
-before collection. Three attempts have 180-second bounds and a 12-minute service
+before collection. CommunityDragon downloads have a shared 60-second budget and
+stage/validate responses before replacing cached files. Upstream failures warn,
+keep existing metadata, and retry at most hourly without blocking sales. Local
+processing failures still fail. Catalog upserts perform no item lookup unless the
+CatalogItem foreign-key constraint fails; fallback queries select only identity
+columns in batches and cache confirmed identities locally. Missing metadata skips
+only affected Catalog/Mythic/Sanctum entries with warnings (identities are retained
+in the uploaded run log); later pulls insert recovered entries and announce them
+through the normal new-sale notification. Three attempts have 180-second bounds and a 12-minute service
 limit. Collection failure cannot process an old snapshot. DB writes are per-table
 and can partially succeed. Runner status and processing heartbeats go to Supabase.
 Riot Client still needs manual intervention for sign-in challenges.

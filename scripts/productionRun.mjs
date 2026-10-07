@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 import { spawnSync } from 'node:child_process';
+import { refreshCommunityDragon } from '../lib/communityDragonRefresh.js';
 import { productionEnvironment } from '../lib/productionConfig.js';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const config = parseEnv(fs.readFileSync(path.join(root, '.env.linux.prod'), 'utf8'));
@@ -20,11 +21,12 @@ if (command === 'check') {
     run(process.execPath, 'scripts/reportLinuxRun.mjs');
 } else if (command === 'direct' || command === 'static') {
     fs.mkdirSync(path.join(root, 'data/run'), { recursive: true, mode: 0o700 });
-    const marker = path.join(root, 'data/run/production-static-date');
-    const today = new Date().toISOString().slice(0, 10);
-    if (command === 'static' || !fs.existsSync(marker) || fs.readFileSync(marker, 'utf8') !== today) {
-        run('bash', 'environmentSetupLinux.sh');
-        fs.writeFileSync(marker, today, { mode: 0o600 });
+    const warning = refreshCommunityDragon(root,
+        () => spawnSync('bash', ['environmentSetupLinux.sh'], { cwd: root, env, stdio: 'inherit' }),
+        Date.now(), command === 'static');
+    if (warning) {
+        console.warn(`WARNING: ${warning}`);
+        env.COMMUNITY_DRAGON_WARNING = warning;
     }
     if (command === 'direct') {
         run(process.execPath, 'scripts/collectDirect.mjs');
