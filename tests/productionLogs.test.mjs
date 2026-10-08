@@ -22,7 +22,7 @@ test('sales logs are fully flushed before upload, and success still publishes th
  assert.equal(fs.existsSync(path.join(f.root,'data/run/production-run.pid')),false);
 });
 test('failed sales runs upload their error logs while preserving failure and never triggering emails',t=>{
- const f=fixture(t);fs.writeFileSync(path.join(f.root,'fail-direct'),'');const r=f.run();assert.equal(r.status,75,r.stderr);
+ const f=fixture(t);fs.mkdirSync(path.join(f.root,'data/run'),{recursive:true});fs.writeFileSync(path.join(f.root,'data/run/email-pull.json'),JSON.stringify({runId:'old'}));fs.writeFileSync(path.join(f.root,'fail-direct'),'');const r=f.run();assert.equal(r.status,75,r.stderr);
  assert.match(fs.readFileSync(path.join(f.root,'uploaded.log'),'utf8'),/Sales run completed with exit code 75/);
  assert.equal(fs.existsSync(path.join(f.root,'data/run/email-pull.json')),false);
 });

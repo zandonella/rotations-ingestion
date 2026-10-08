@@ -66,6 +66,8 @@ export class DiscordLogger {
     }
 
     async finish() {
+        // Managed runs publish warnings/failures through the state-change monitor.
+        if (process.env.DISCORD_ISSUES_VIA_MONITOR === 'true') return;
         if (this.hasIssues) {
             const level = this.errorCount > 0 ? 'ERROR' : 'WARN';
 
@@ -76,10 +78,7 @@ export class DiscordLogger {
             return;
         }
 
-        await this.queueMessage(
-            'OK',
-            'Processing completed with no errors or warnings.',
-        );
+        // Successful runs are quiet; rotationUpdate reports actual changes.
     }
 
     async rotationUpdate(context: string) {
@@ -129,7 +128,7 @@ export class DiscordLogger {
         context: string,
         rotationUpdate = false,
     ) {
-        if (isLocalMode() || (level === 'OK' && !rotationUpdate && process.env.DISCORD_SUCCESS_ENABLED === 'false')) return;
+        if (isLocalMode()) return;
         const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
 
         if (!webhookUrl) {
@@ -142,7 +141,7 @@ export class DiscordLogger {
             return;
         }
 
-        // Only ping the role on ERROR; warnings stay quiet.
+        // Only errors ping the configured staff role.
         const roleId = getMentionRoleId();
         const mentionRoleId = roleId && level === 'ERROR' ? roleId : undefined;
         const content = mentionRoleId ? `<@&${mentionRoleId}>` : undefined;

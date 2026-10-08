@@ -21,6 +21,9 @@ docker exec supabase_db_rotations-linux-lab psql -U postgres -d postgres -v ON_E
     -c 'DROP TRIGGER IF EXISTS og_refresh_after_heartbeat ON public.ingestion_heartbeat;'
 docker exec -i supabase_db_rotations-linux-lab psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
     < linux/migrations/20261002000000_linux_ingestion_status.sql
+for migration in supabase/migrations/202610080*.sql; do
+    docker exec -i supabase_db_rotations-linux-lab psql -U postgres -d postgres -v ON_ERROR_STOP=1 < "$migration"
+done
 ./node_modules/.bin/supabase --workdir linux status --output json | node --input-type=module -e '
 import fs from "node:fs";
 const status = JSON.parse(fs.readFileSync(0, "utf8"));

@@ -6,7 +6,7 @@
     "scripts": {
         "prod:process:static": "node --env-file=.env.prod processStaticData.ts",
         "prod:process:client": "node --env-file=.env.prod processClientData.ts",
-        "test": "node tests/catalogSales.test.ts && node tests/yourShop.test.ts && node tests/leagueLockfile.test.ts && node --experimental-test-module-mocks --test tests/refreshPublicApi.test.ts tests/refreshHintFlow.test.ts",
+        "test": "node tests/catalogSales.test.ts && node tests/yourShop.test.ts && node tests/leagueLockfile.test.ts && node --experimental-test-module-mocks --test tests/refreshPublicApi.test.ts tests/refreshHintFlow.test.ts && node --test tests/discordLogger.test.ts",
         "local:collect": "node scripts/localRun.mjs collect",
         "local:client": "node scripts/localRun.mjs client",
         "local:process:client": "node scripts/localRun.mjs process-client",
@@ -14,11 +14,11 @@
         "local:refresh": "bash scripts/runLocalDirect.sh",
         "local:collect:direct": "node scripts/localRun.mjs collect-direct",
         "local:static": "node scripts/localRun.mjs static",
-        "test:linux": "node --test tests/linuxCollector.test.mjs tests/productionConfig.test.mjs tests/productionStop.test.mjs tests/productionLogs.test.mjs tests/riotPause.test.mjs && node --experimental-test-module-mocks --test tests/refreshHintFlowLinux.test.ts && node --test tests/rotationNotifications.test.mjs tests/catalogSaleFallback.test.mjs tests/communityDragonRefresh.test.mjs tests/staffMentions.test.ts",
+        "test:linux": "node --test tests/linuxCollector.test.mjs tests/productionConfig.test.mjs tests/productionStop.test.mjs tests/productionLogs.test.mjs tests/riotPause.test.mjs tests/pollSchedule.test.mjs tests/catalogSaleFallback.test.mjs && node --experimental-test-module-mocks --test tests/refreshHintFlowLinux.test.ts && node --test tests/rotationNotifications.test.mjs && node --test tests/communityDragonRefresh.test.mjs tests/staffMentions.test.ts",
         "test:local-db": "node tests/localDatabaseSmoke.mjs",
-        "test:public-api-db": "node tests/publicApiStateDatabase.mjs",
         "linux:prod:check": "node scripts/productionRun.mjs check",
-        "linux:prod:refresh": "bash scripts/runProductionDirect.sh"
+        "linux:prod:refresh": "bash scripts/runProductionDirect.sh",
+        "test:public-api-db": "node tests/publicApiStateDatabase.mjs"
     },
     "type": "module",
     "author": "",

@@ -22,7 +22,6 @@ import { DiscordLogger } from './lib/discordLoggerLinux.ts';
 import { createSanctumBannerImageUrl } from './lib/images.ts';
 import { upsertCatalogWithFallback } from './lib/catalogSaleFallback.js';
 import { dedupeCatalogSales } from './lib/catalogSales.ts';
-import { readActiveRotations, newRotationItems, describeRotationItems } from './lib/rotationNotifications.js';
 import { refreshPublicApi } from './lib/refreshPublicApiLinux.ts';
 import {
     isActiveYourShopStatus,
@@ -30,8 +29,6 @@ import {
 } from './lib/yourShop.ts';
 
 const logger = new DiscordLogger('processClientData');
-const metadataWarning = process.env.COMMUNITY_DRAGON_WARNING;
-if (metadataWarning) logger.warn(metadataWarning);
 let affectedItems = 0;
 
 let catalogNames: Map<string, string> | undefined;
@@ -630,8 +627,8 @@ async function writeHeartbeat(nextExpectedAt: Date, message?: string) {
         last_run_at: new Date().toISOString(),
         next_expected_at: nextExpectedAt.toISOString(),
         // The monitor owns the single staff escalation; collection remains successful.
-        status: (logger.hasErrors || process.env.COMMUNITY_DRAGON_ESCALATED === 'true') ? 'error' : logger.hasWarnings ? 'warn' : 'ok',
-        message: [message, metadataWarning, affectedItems ? `${affectedItems} sales skipped for missing item metadata; see run log for identities.` : undefined].filter(Boolean).join(' ') || null,
+        status: logger.hasErrors ? 'error' : logger.hasWarnings ? 'warn' : 'ok',
+        message: [message, affectedItems ? `${affectedItems} sales skipped for missing item metadata; see run log for identities.` : undefined].filter(Boolean).join(' ') || null,
     });
 
     if (error) {
@@ -644,21 +641,13 @@ async function writeHeartbeat(nextExpectedAt: Date, message?: string) {
 async function main() {
     const pollMinutes = process.env.INGESTION_POLL_INTERVAL_MINUTES;
     // Validate scheduling configuration before any database writes.
-    if (pollMinutes !== undefined) nextPollAt(pollMinutes);
+    if (pollMinutes !== undefined) nextPollAt(pollMinutes, Date.now(), process.env.INGESTION_POLL_OFFSET_MINUTES ?? 0);
     const directory = process.env.CLIENT_DATA_DIRECTORY || path.join(path.dirname(fileURLToPath(import.meta.url)), 'data/source');
     clientSnapshot = readClientSnapshot(directory, {
         maxAgeSeconds: process.env.CLIENT_SNAPSHOT_MAX_AGE_SECONDS ?? 1800,
     });
     if (!clientSnapshot && process.env.CLIENT_REQUIRE_SNAPSHOT === 'true') {
         throw new Error('A fresh clientSnapshot.json is required. Run the collector first.');
-    }
-    let rotationsBefore: Awaited<ReturnType<typeof readActiveRotations>> | undefined;
-    if (!isLocalMode()) {
-        try { rotationsBefore = await readActiveRotations(supabase); }
-        catch (error) {
-            console.warn('Rotation notification comparison unavailable:', error);
-            await logger.warn('Could not read rotations before processing; change notification skipped.');
-        }
     }
     const sales = dedupeCatalogSales(processCatalogSales());
     const catalogSaved = await upsertCatalogSales(sales);
@@ -688,26 +677,16 @@ async function main() {
 
     const allSaved = catalogSaved && catalogExpired && mythicSaved && mythicExpired &&
         sanctumResult.success && sanctumSaved && sanctumExpired && yourShopSynced;
+    console.log(`Processed ${sales.length} catalog sales, ${mythicSales.length} Mythic offers, ${sanctumSales.length} Sanctum banners; ${affectedItems} missing metadata items.`);
     if (allSaved) {
         await refreshPublicApi(logger);
-        if (rotationsBefore) {
-            try {
-                const additions = newRotationItems(rotationsBefore, await readActiveRotations(supabase));
-                if (additions.length > 0) {
-                    await logger.rotationUpdate(await describeRotationItems(supabase, additions));
-                }
-            } catch (error) {
-                console.warn('Rotation change notification failed:', error);
-                await logger.warn('Failed to prepare or send rotation change notification.');
-            }
-        }
     } else {
         process.exitCode = 1;
         await logger.error('Client data processing was incomplete.');
     }
 
     if (pollMinutes !== undefined) {
-        await writeHeartbeat(nextPollAt(pollMinutes), `Polling every ${pollMinutes} minutes; no wake scheduled.`);
+        await writeHeartbeat(nextPollAt(pollMinutes, Date.now(), process.env.INGESTION_POLL_OFFSET_MINUTES ?? 0), `Polling every ${pollMinutes} minutes at offset ${process.env.INGESTION_POLL_OFFSET_MINUTES ?? 0}; no wake scheduled.`);
         return;
     }
 

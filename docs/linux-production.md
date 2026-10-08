@@ -128,3 +128,41 @@ stores, two Sanctum banners and inactive Your Shop. The actual Riot runtime was
 blocked from direct internet when exit-node selection was removed. A prior
 nonresidential exit returned HTTP 403 on required startup config. Full host reboot
 and an active Your Shop require ongoing operational validation.
+
+
+## Hourly ingestion and low-egress email delivery
+
+Production runs at `*:01:00 UTC`. Each attempt downloads and validates all
+CommunityDragon sources and completes their metadata upserts before collecting
+Riot data or writing sales. A failed metadata stage stops dependent processing;
+there is no daily metadata gate or cached-metadata success fallback. Normal
+bounded retries and Riot cooldowns still apply.
+
+Shop processing logs counts and issues, without before/after active-rotation
+reads. Managed ingestion issue alerts are owned by the monitor, which deduplicates
+status transitions and sends recovery notifications. Public state is published once after metadata and all shop operations
+complete. Publication failure fails the run; an API refresh-hint failure warns
+and is recovered by the API's hourly `:05` check. The next heartbeat is the next
+hourly `:01` boundary.
+
+A successful run atomically publishes a UUID `runId`, `startedAt`, and
+`completedAt` in `data/run/email-pull.json`. Failed attempts remove the prior
+marker. `ExecStartPost` starts the email service; email code accepts only a fresh
+completed marker, records consumption after success, and retains its exclusive
+lock. Private `linux_email_status` reports running/success/failure independently.
+Missing upstream cosmetic metadata is explicitly reported as degraded; known
+sales still process and unknown items retry on the next fresh metadata cycle.
+
+Apply `supabase/migrations/20261008000000_backend_email_batches.sql` and
+`20261008010000_skip_unchanged_ingestion.sql` before
+updating the email worker or monitor. The migration adds service-role-only queue
+and delivery RPCs and a private operational status table. No public access is
+added. Update the VPS monitor's `LINUX_POLL_INTERVAL_MINUTES=60`, and the API's
+`REFRESH_INTERVAL_MINUTES=60`; deploy `/internal/email-data` on the existing
+private ingress along with `/internal/refresh`.
+
+Local checks: `npm test`, `npm run test:linux`, `npm run local:static`,
+`npm run test:local-db`, and `tests/emailBatches.sql` against the isolated local
+Postgres. The email repository's `npm run test:local-db` exercises the real local
+queue, API cache, HTML rendering, and delivery recording using synthetic rows,
+with no SES call. Its cleanup removes only its own fixtures.

@@ -75,10 +75,7 @@ export class DiscordLogger {
             return;
         }
 
-        await this.queueMessage(
-            'OK',
-            'Processing completed with no errors or warnings.',
-        );
+        // Routine successful runs are quiet.
     }
 
     private recordIssue(level: IssueLevel, context: string) {
@@ -135,7 +132,7 @@ export class DiscordLogger {
             return;
         }
 
-        // Only ping the role on ERROR; warnings stay quiet.
+        // Only errors ping the configured staff role.
         const roleId = getMentionRoleId();
         const mentionRoleId = roleId && level === 'ERROR' ? roleId : undefined;
         const content = mentionRoleId ? `<@&${mentionRoleId}>` : undefined;

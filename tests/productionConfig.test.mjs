@@ -12,9 +12,11 @@ test('production rejects local, insecure, and incomplete destinations', () => {
 test('production forces fresh snapshots and disables Windows wakes and success spam', () => {
     const env = productionEnvironment({ ...valid, WAKE_SCHEDULER_ENABLED: 'true', INGESTION_POLL_INTERVAL_MINUTES: '1440', INGESTION_LOCAL_ONLY: 'true' });
     assert.equal(env.WAKE_SCHEDULER_ENABLED, 'false');
-    assert.equal(env.INGESTION_POLL_INTERVAL_MINUTES, '30');
+    assert.equal(env.INGESTION_POLL_INTERVAL_MINUTES, '60');
+    assert.equal(env.INGESTION_POLL_OFFSET_MINUTES, '1');
     assert.equal(env.CLIENT_REQUIRE_SNAPSHOT, 'true');
     assert.equal(env.DISCORD_SUCCESS_ENABLED, 'false');
+    assert.equal(env.DISCORD_ISSUES_VIA_MONITOR, 'true');
     assert.equal(env.INGESTION_LOCAL_ONLY, 'false');
 });
 
@@ -22,13 +24,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-test('production runs static daily, and failures stop dependent processing', () => {
+test('production refreshes static on every attempt, and failures stop dependent processing', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rotations-production-test-'));
     try {
         fs.mkdirSync(path.join(root, 'scripts'));
         fs.mkdirSync(path.join(root, 'lib'));
         fs.writeFileSync(path.join(root, 'package.json'), '{"type":"module"}');
-        for (const file of ['scripts/productionRun.mjs', 'lib/productionConfig.js', 'lib/communityDragonRefresh.js']) {
+        for (const file of ['scripts/productionRun.mjs', 'lib/productionConfig.js']) {
             fs.copyFileSync(new URL(`../${file}`, import.meta.url), path.join(root, file));
         }
         fs.writeFileSync(path.join(root, '.env.linux.prod'), 'SUPABASE_URL=https://example.supabase.co\nSUPABASE_KEY=test\nRIOT_CLIENT_LOCKFILE=/runtime/lockfile\n');
@@ -38,26 +40,15 @@ test('production runs static daily, and failures stop dependent processing', () 
         const run = () => spawnSync(process.execPath, ['scripts/productionRun.mjs', 'direct'], { cwd: root });
         assert.equal(run().status, 0);
         assert.equal(run().status, 0);
-        assert.equal(fs.readFileSync(path.join(root, 'calls'), 'utf8'), 'static\ncollect\nprocess\ncollect\nprocess\n');
+        assert.equal(fs.readFileSync(path.join(root, 'calls'), 'utf8'), 'static\ncollect\nprocess\nstatic\ncollect\nprocess\n');
         fs.writeFileSync(path.join(root, 'calls'), '');
         fs.writeFileSync(path.join(root, 'fail-collect'), '');
         assert.equal(run().status, 1);
-        assert.equal(fs.readFileSync(path.join(root, 'calls'), 'utf8'), 'collect\n');
-        fs.unlinkSync(path.join(root, 'data/run/production-static-date'));
+        assert.equal(fs.readFileSync(path.join(root, 'calls'), 'utf8'), 'static\ncollect\n');
         fs.writeFileSync(path.join(root, 'calls'), '');
         fs.writeFileSync(path.join(root, 'fail-static'), '');
         assert.equal(run().status, 1);
         assert.equal(fs.readFileSync(path.join(root, 'calls'), 'utf8'), 'static\n');
-        assert.equal(fs.existsSync(path.join(root, 'data/run/production-static-date')), false);
-        fs.unlinkSync(path.join(root, 'fail-static'));
-        fs.unlinkSync(path.join(root, 'fail-collect'));
-        fs.writeFileSync(path.join(root, 'calls'), '');
-        fs.writeFileSync(path.join(root, 'environmentSetupLinux.sh'), 'echo static >> calls\nexit 76\n');
-        fs.writeFileSync(path.join(root, 'processClientDataLinux.ts'), "import fs from 'node:fs'; fs.appendFileSync('calls', 'process\\n'); fs.writeFileSync('warning', process.env.COMMUNITY_DRAGON_WARNING || '');");
-        assert.equal(run().status, 0);
-        assert.match(fs.readFileSync(path.join(root, 'warning'), 'utf8'), /CommunityDragon unavailable/);
-        assert.equal(run().status, 0);
-        assert.equal(fs.readFileSync(path.join(root, 'calls'), 'utf8'), 'static\ncollect\nprocess\ncollect\nprocess\n');
         assert.equal(fs.existsSync(path.join(root, 'data/run/production-static-date')), false);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

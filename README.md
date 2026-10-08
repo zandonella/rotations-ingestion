@@ -3,7 +3,7 @@
 > Linux experiment: see [the local-only setup and client access options](docs/linux-ingestion.md),
 > [the Riot direct API flow](docs/riot-direct-api.md), and [the migration plan](docs/linux-migration.md).
 > This branch is for the isolated lab; do not push it to `main`.
-> The lab now uses [half-hour polling and supervised Riot Client](docs/linux-testing.md).
+> The lab uses [supervised Riot Client](docs/linux-testing.md).
 > Linux uses separate `*Linux` collectors/processors and an atomic snapshot.
 > Original Windows scripts, shared modules, dependencies and Supabase configuration
 > remain unchanged; the Windows workflow below still uses separate JSON files and Hasagi.
@@ -77,7 +77,7 @@ DISCORD_MENTION_ROLE_ID=<optional Discord role ID to mention on warnings and err
 
 Use the local `service_role` key for development script runs because these scripts write and upsert Supabase data.
 `DISCORD_WEBHOOK_URL` enables one final Discord status message for each processing run, covering errors, warnings, or successful all-clear runs.
-`DISCORD_MENTION_ROLE_ID` pings a Discord role on warning and error messages, but not all-clear messages.
+`DISCORD_MENTION_ROLE_ID` pings a Discord role on every warning and error notification. Routine successful runs send no webhook; Linux ingestion logs counts and issues without downloading active rotations for announcements.
 
 When you are done with local development, stop Supabase:
 
@@ -155,3 +155,8 @@ Add `DISCORD_WEBHOOK_URL` and `DISCORD_MENTION_ROLE_ID` to `.env.prod` as well i
 - Email pipeline: [rotations-email](https://github.com/zandonella/rotations-email)
 
 Production rollout instructions: [Linux production cutover](docs/linux-production.md).
+
+Production ingestion runs hourly at `:01 UTC`. Every attempt refreshes all
+CommunityDragon metadata before collecting and processing Riot sales. Completed
+pulls trigger email delivery. See `docs/linux-production.md` for the publication,
+private email RPC, monitor, and API-cache contracts and local validation steps.

@@ -377,7 +377,7 @@ async function main() {
     const processedWards = processWards();
     await upsertCatalogItems(processedWards, 'wards');
 
-    await refreshPublicApi(logger);
+    if (process.env.DEFER_PUBLIC_API_PUBLICATION !== 'true') await refreshPublicApi(logger);
 }
 main()
     .then(async () => {

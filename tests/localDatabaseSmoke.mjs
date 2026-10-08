@@ -20,7 +20,7 @@ async function rows(table, query = '') {
     assert.equal(res.status, 200);
     return res.json();
 }
-const [item] = await rows('CatalogItem', 'ItemType=eq.1&limit=1');
+const [item] = await rows('CatalogItem', 'ItemType=eq.1&RiotItemID=lt.99999001&limit=1');
 assert.ok(item, 'Run local:static first.');
 const start = new Date(Date.now() - 60_000).toISOString();
 const end = new Date(Date.now() + 3_600_000).toISOString();

@@ -1,5 +1,5 @@
 [Unit]
-Description=Rotations hourly wishlist emails after successful on-the-hour ingestion
+Description=Rotations hourly wishlist emails after completed hourly ingestion
 
 [Service]
 Type=oneshot

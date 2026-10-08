@@ -32,12 +32,16 @@ finish_run() {
     exit "$result"
 }
 trap finish_run EXIT
+rm -f data/run/email-pull.json
 node scripts/productionRun.mjs check
 printf '%s\n' "$$" > data/run/production-run.pid
 attempt=1
 run_started_at="$(date -u +%FT%TZ)"
+run_id="$(node -e 'console.log(require("node:crypto").randomUUID())')"
+# Failed attempts cannot expose the previous successful pull.
 
-export INGESTION_POLL_INTERVAL_MINUTES=30
+export INGESTION_POLL_INTERVAL_MINUTES=60
+export INGESTION_POLL_OFFSET_MINUTES=1
 export RIOT_CLIENT_LOCKFILE="${RIOT_CLIENT_LOCKFILE:-$ROOT/../wine/prefix/drive_c/users/$(id -un)/AppData/Local/Riot Games/Riot Client/Config/lockfile}"
 
 write_status() {
@@ -68,9 +72,9 @@ for attempt in 1 2 3; do
     if timeout --kill-after=10s 180s node scripts/productionRun.mjs direct; then
         write_status ok "$attempt"
         # Publish only after the pull succeeds; the host email service follows this slot.
-        node --input-type=module - "$run_started_at" <<'JS'
+        node --input-type=module - "$run_started_at" "$run_id" <<'JS'
 import fs from 'node:fs';
-fs.writeFileSync('data/run/email-pull.json.tmp', JSON.stringify({ startedAt: process.argv[2], completedAt: new Date().toISOString() }), { mode: 0o600 });
+fs.writeFileSync('data/run/email-pull.json.tmp', JSON.stringify({ runId: process.argv[3], startedAt: process.argv[2], completedAt: new Date().toISOString() }), { mode: 0o600 });
 fs.renameSync('data/run/email-pull.json.tmp', 'data/run/email-pull.json');
 JS
         exit 0
@@ -89,5 +93,5 @@ JS
     fi
 done
 write_status error "$attempt"
-echo 'ERROR: Production direct ingestion failed after 3 attempts. See the service journal; next retry is the next half-hour tick.' >&2
+echo 'ERROR: Production direct ingestion failed after 3 attempts. See the service journal; next retry is the next hourly tick.' >&2
 exit 1

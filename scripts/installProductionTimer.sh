@@ -11,8 +11,8 @@ cd "$ROOT"
 node scripts/productionRun.mjs check
 [[ -f .env.proxy.local ]] || { echo "Private tunnel configuration missing." >&2; exit 1; }
 install -d -m 700 "$HOME/.config/systemd/user"
-for unit in deploy/linux-production/*; do
-    sed "s|@ROOT@|$ROOT|g; s|@RUNTIME@|$RUNTIME|g" "$unit" > "$HOME/.config/systemd/user/$(basename "$unit")"
+for unit in deploy/linux-production/*.service deploy/linux-production/*.timer; do
+    sed "s|@ROOT@|$ROOT|g; s|@RUNTIME@|$RUNTIME|g; s|@EMAIL_ROOT@|$RUNTIME/rotations-email|g" "$unit" > "$HOME/.config/systemd/user/$(basename "$unit")"
 done
 systemctl --user daemon-reload
 echo 'Installed, not enabled. Complete the cutover checklist before starting rotations-production-direct.service.'

@@ -26,7 +26,7 @@ test('ingestion hints reflect public data results before operational bookkeeping
 
     let scenario: { fail?: string; empty?: boolean; missingMythic?: boolean; missingSanctum?: boolean; failedYourShop?: boolean; hintFails?: boolean; wakeFails?: boolean };
     let events: string[];
-    let heartbeat: { next_expected_at: string; message: string; status: string } | undefined;
+    let heartbeat: { next_expected_at: string; message: string } | undefined;
     let finish: () => void;
     t.mock.method(console, 'log', () => {});
     t.mock.method(console, 'warn', () => {});
@@ -47,11 +47,7 @@ test('ingestion hints reflect public data results before operational bookkeeping
     t.mock.module('../lib/supabaseLinux.ts', {
         namedExports: {
             supabase: {
-                async rpc(name: string) {
-                    assert.equal(name, 'record_public_api_state');
-                    events.push('public-state');
-                    return { data: true, error: scenario.fail === 'public-state' ? { message: 'Publication failed.' } : null };
-                },
+                async rpc() { return { data: true, error: null }; },
                 from(table: string) {
                     let operation = '';
                     let columns = '';
@@ -146,8 +142,7 @@ test('ingestion hints reflect public data results before operational bookkeeping
     for (const settings of [{}, { empty: true }, { fail: 'ingestion_heartbeat.upsert' }, { hintFails: true }, { wakeFails: true }]) {
         const result = await execute('processClientData', settings);
         assert.equal(result.filter(event => event === 'hint').length, 1);
-        assert.ok(result.includes('public-state'));
-        assert.equal(result.filter(event => event === 'rotation-notification').length, 1);
+        assert.equal(result.filter(event => event === 'rotation-notification').length, 0);
         assert.ok(result.indexOf('hint') < result.indexOf('ingestion_heartbeat.upsert'));
         if (result.includes('wake')) assert.ok(result.indexOf('hint') < result.indexOf('wake'));
         assert.equal(process.exitCode, settings.wakeFails ? 1 : 0);
@@ -162,37 +157,27 @@ test('ingestion hints reflect public data results before operational bookkeeping
         assert.equal(failedEvents.includes('hint'), false, fail);
         assert.equal(failedEvents.includes('rotation-notification'), false, fail);
     }
-    assert.equal((await execute('processClientData', { fail: 'public-state' })).includes('hint'), false);
-    for (const settings of [{ missingMythic: true }, { missingSanctum: true }]) {
-        const result = await execute('processClientData', settings);
-        assert.equal(result.includes('hint'), true);
-        assert.equal(result.includes('rotation-notification'), true);
-        assert.equal(process.exitCode, 0);
+    for (const settings of [{ failedYourShop: true }]) {
+        assert.equal((await execute('processClientData', settings)).includes('hint'), false);
     }
-    assert.equal((await execute('processClientData', { failedYourShop: true })).includes('hint'), false);
 
-    process.env.INGESTION_POLL_INTERVAL_MINUTES = '30';
+    process.env.INGESTION_POLL_INTERVAL_MINUTES = '60';
+    process.env.INGESTION_POLL_OFFSET_MINUTES = '1';
     const pollingEvents = await execute('processClientData', {});
     assert.equal(pollingEvents.includes('wake'), false);
     assert.equal(pollingEvents.includes('hint'), true);
-    assert.equal(heartbeat?.next_expected_at, '2026-09-22T12:30:00.000Z');
-    assert.match(heartbeat?.message ?? '', /Polling every 30 minutes/);
+    assert.equal(heartbeat?.next_expected_at, '2026-09-22T12:01:00.000Z');
+    assert.match(heartbeat?.message ?? '', /Polling every 60 minutes at offset 1/);
     assert.equal(process.exitCode, 0);
-    process.env.COMMUNITY_DRAGON_ESCALATED = 'true';
-    process.env.COMMUNITY_DRAGON_WARNING = 'CommunityDragon outage has exceeded three hours.';
-    const escalatedEvents = await execute('processClientData', {});
-    assert.equal(heartbeat?.status, 'error');
-    assert.match(heartbeat?.message ?? '', /CommunityDragon outage/);
-    assert.equal(process.exitCode, 0);
-    assert.equal(escalatedEvents.includes('hint'), true);
-    assert.equal(escalatedEvents.includes('rotation-notification'), true);
-    delete process.env.COMMUNITY_DRAGON_ESCALATED;
-    delete process.env.COMMUNITY_DRAGON_WARNING;
     process.env.INGESTION_POLL_INTERVAL_MINUTES = 'invalid';
     assert.deepEqual(await execute('processClientData', {}), []);
     assert.equal(process.exitCode, 1);
     delete process.env.INGESTION_POLL_INTERVAL_MINUTES;
+    delete process.env.INGESTION_POLL_OFFSET_MINUTES;
 
+    process.env.DEFER_PUBLIC_API_PUBLICATION = 'true';
+    assert.equal((await execute('processStaticData', {})).includes('hint'), false);
+    delete process.env.DEFER_PUBLIC_API_PUBLICATION;
     const staticEvents = await execute('processStaticData', {});
     assert.equal(staticEvents.filter(event => event === 'hint').length, 1);
     assert.equal(staticEvents.at(-1), 'hint');

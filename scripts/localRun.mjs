@@ -18,6 +18,11 @@ const env = {
     ROTATIONS_API_REFRESH_URL: '', ROTATIONS_API_REFRESH_SECRET: '',
     WOL_API_IP: '', WAKE_SCHEDULER_ENABLED: 'false',
 };
+if (process.argv[2] === 'direct') {
+    env.DEFER_PUBLIC_API_PUBLICATION = 'true';
+    env.INGESTION_POLL_INTERVAL_MINUTES = '60';
+    env.INGESTION_POLL_OFFSET_MINUTES = '1';
+}
 assertLocalSupabase(env);
 const command = process.argv[2];
 const commands = {
@@ -26,7 +31,7 @@ const commands = {
     client: [[process.execPath, 'getClientDataLinux.js'], [process.execPath, 'processClientDataLinux.ts']],
     'process-client': [[process.execPath, 'processClientDataLinux.ts']],
     // No League client: Riot services via a signed-in Riot Client (set RIOT_CLIENT_LOCKFILE).
-    direct: [[process.execPath, 'scripts/collectDirect.mjs'], [process.execPath, 'processClientDataLinux.ts']],
+    direct: [['bash', 'environmentSetupLinux.sh'], [process.execPath, 'scripts/collectDirect.mjs'], [process.execPath, 'processClientDataLinux.ts']],
     'collect-direct': [[process.execPath, 'scripts/collectDirect.mjs']],
     static: [['bash', 'environmentSetupLinux.sh']],
     'process-static': [[process.execPath, 'processStaticDataLinux.ts']],

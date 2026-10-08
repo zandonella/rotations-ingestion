@@ -1,8 +1,8 @@
 [Unit]
-Description=Rotations production collection every half hour
+Description=Rotations production collection hourly at one minute past the hour
 
 [Timer]
-OnCalendar=*-*-* *:00,30:00 UTC
+OnCalendar=*-*-* *:01:00 UTC
 Persistent=true
 AccuracySec=1s
 Unit=rotations-production-direct.service
