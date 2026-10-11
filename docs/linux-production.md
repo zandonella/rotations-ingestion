@@ -166,3 +166,28 @@ Local checks: `npm test`, `npm run test:linux`, `npm run local:static`,
 Postgres. The email repository's `npm run test:local-db` exercises the real local
 queue, API cache, HTML rendering, and delivery recording using synthetic rows,
 with no SES call. Its cleanup removes only its own fixtures.
+
+## Recovery after host power loss
+
+The user running the production units must have persistent membership in the
+Docker group (`sudo usermod -aG docker zando` on this host). A one-time socket ACL
+does not survive recreation of `/run/docker.sock`. Docker/containerd must be
+enabled at boot, the user must have lingering enabled, and the production timer
+must remain enabled. The existing container uses `restart: unless-stopped`.
+
+The collection unit refreshes Docker group membership with `sg`, waits up to
+three minutes for the container health check (including the signed-in Riot API),
+and retries ordinary failures after five minutes. The total service start limit
+is fifteen minutes, including readiness; the existing collection attempt limits
+remain unchanged. Exit 75 preserves Riot cooldown/manual-review pauses and waits
+for the next hourly timer instead of an immediate service restart. Successful
+collection still triggers the existing email unit exactly as before.
+
+On 2026-10-11 an interrupted Riot self-update was repaired from official manifest
+chunks, including cached update bundles. Every installed manifest chunk was
+verified with Blake3 before restoring the official installation completion
+marker; the saved sign-in was preserved. Backups are outside the checkout under
+the host production backup directory. Riot sign-in challenges and future Wine
+compatibility failures can still require manual intervention. A full host reboot
+requires a supervised verification; container restart alone does not establish
+that all host boot dependencies recover.
