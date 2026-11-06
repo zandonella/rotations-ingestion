@@ -1,193 +1,84 @@
-# Linux production
+# Linux ingestion deployment
 
-The owner verified shops against the game and authorized production. A single
-Docker container supervises Tailscale and Riot Client under Wine. Root supervises
-the tunnel; Riot and ingestion run as UID 1000 with no capabilities. Firewall rules
-install before Riot starts, permitting workload internet traffic only through
-tailscale0. Both IPv4/IPv6 are filtered; direct Docker DNS forwarding is blocked.
-The host and other devices retain their ordinary routes. Private .env files,
-Wine sessions, network details, and database backups stay outside Git.
+The managed Linux setup runs Riot Client under Wine in a Docker container and schedules ingestion with systemd. Each hourly run refreshes CommunityDragon metadata, collects current shop data, processes rotations, publishes public API state, and triggers wishlist email delivery after success.
 
-The systemd user timer runs full collection at :00/:30 UTC inside the container.
-A process lock prevents overlap. Static catalog data refreshes once per UTC day
-before collection. CommunityDragon downloads have a shared 60-second budget and
-stage/validate responses before replacing cached files. Upstream failures warn,
-keep existing metadata, and retry at most hourly without blocking sales. Staff
-mentions are error-only. Six half-hour warning periods and a three-hour outage
-escalate the processing heartbeat to error; the monitor sends one staff ping on
-that state transition. Further pulls keep the heartbeat in error until metadata
-refresh recovers, while collection remains successful. Same-slot retries do not
-inflate the warning count. Local
-processing failures still fail. Catalog upserts perform no item lookup unless the
-CatalogItem foreign-key constraint fails; fallback queries select only identity
-columns in batches and cache confirmed identities locally. Missing metadata skips
-only affected Catalog/Mythic/Sanctum entries with warnings (identities are retained
-in the uploaded run log); later pulls insert recovered entries and announce them
-through the normal new-sale notification. Three attempts have 180-second bounds and a 12-minute service
-limit. Collection failure cannot process an old snapshot. DB writes are per-table
-and can partially succeed. Runner status and processing heartbeats go to Supabase.
-Riot Client still needs manual intervention for sign-in challenges.
+## Runtime and configuration
 
-HTTP 429 persists Retry-After (seconds or HTTP date; default one hour, minimum one
-minute) in data/run/riot-pause.json. HTTP 401/403 persist a manual-review pause.
-These exit 75 and stop immediate retries. Clear that file only after resolving
-the issue. This controls Node collection, not Riot Client internal retries.
-Routine success messages are disabled. Warnings/errors and remote monitoring
-remain available. OG builds queue only when active sale content changes; dispatch
-is asynchronous. Public cache revisions are published after successful complete pulls. Optional API hints fire only when a revision changes. The API fallback reads one small public state row every half hour.
+Use Node 24, Docker, systemd user services, and a separate deployment checkout without `.env.local`. Prepare a signed-in Wine runtime with `tools`, `wine`, `logs`, and `tmp` directories. The managed email integration expects the ingestion checkout at `<runtime-root>/production/rotations-ingestion` and the email checkout at `<runtime-root>/rotations-email`. The included runtime expects its Wine binary under `tools/wine-11.18-staging-amd64-wow64/bin/wine`. These templates require that runtime layout and are not a general Wine installer.
 
-## Initial setup
+Copy `.env.linux.prod.example` to `.env.linux.prod` and `.env.proxy.example` to `.env.proxy.local`. Keep both files private.
 
-Use Node 24 and a separate production checkout; npm ci. Do not copy .env.local.
-Copy .env.linux.prod.example to .env.linux.prod and configure production service-role
-credentials, Riot lockfile, Discord, and optional API cache-refresh credentials.
-Copy .env.proxy.example to .env.proxy.local and set the approved exit node, durable
-Wine runtime root, and existing signed-in Docker Tailscale state volume. chmod 600
-both files. Keep the runtime directory even if its name originally referred to a lab.
+| File | Settings |
+|---|---|
+| `.env.linux.prod` | Supabase service role credentials, an absolute Riot Client lockfile path, optional Discord settings, and API refresh settings. |
+| `.env.proxy.local` | `RUNTIME_ROOT`, `EXIT_NODE`, and `TAILSCALE_STATE_VOLUME`. |
+| `production/email.env` under the runtime root | Supabase credentials, SES credentials, a verified sender, and optional Discord settings for the email worker. |
+| `production/ingestion.env` under the runtime root | Supabase and API refresh settings read by the email integration. |
 
-Verify a production backup, then explicitly apply these SQL files in order:
+The container supervises Tailscale and routes workload traffic through the configured exit node. The Wine runtime and saved client session persist outside the checkout. Sign-in challenges require manual intervention through Riot Client.
 
-- linux/migrations/20261002000000_linux_ingestion_status.sql
-- linux/migrations/20261002010000_deduplicate_og_refresh.sql
+## Database and integrations
 
-Do not replay the local schema or restore lab data. Stop old lab client/collector
-units and experimental containers before reusing Wine or Tailscale state. Stop
-Windows/Pi timers and pending wake/run jobs before the first production write.
+Install the schema migrations in `supabase/migrations/`, including public API state and catalog deltas, restricted publisher permissions, backend email batches, and unchanged-write handling. The Linux-specific migrations are separate.
 
-```bash
+```text
+linux/migrations/20261002000000_linux_ingestion_status.sql
+linux/migrations/20261002010000_deduplicate_og_refresh.sql
+```
+
+Use an existing database backup when preparing an upgrade. Do not restore development fixtures into a deployed database.
+
+Configure the [email service](https://github.com/zandonella/rotations-email) beside the runtime and the [API service](https://github.com/zandonella/rotations-api) on its own host. Public API publication occurs after complete ingestion. Configured HTTP hints notify the API after complete Linux ingestion so it can confirm freshness and fetch any changed public content. Expose `/internal/refresh` and `/internal/email-data` only through the API's authenticated private ingress.
+
+The [Linux monitor](https://github.com/zandonella/rotations-monitoring/blob/main/docs/linux.md) reads operational rows from Supabase. Set `LINUX_POLL_INTERVAL_MINUTES=60` and use the API's hourly fallback setting, `REFRESH_INTERVAL_MINUTES=60`.
+
+## Start the services
+
+The systemd account needs persistent Docker access and user lingering. Docker must start at boot. Set `RUNTIME_ROOT` in `.env.proxy.local` to the prepared runtime's absolute path and pass that same path to the installer.
+
+```sh
+npm ci
+npm run linux:prod:check
+chmod 600 .env.linux.prod .env.proxy.local
 docker compose --env-file .env.proxy.local -f docker-compose.production.yml up -d --build
-bash scripts/installProductionTimer.sh
+bash scripts/installProductionTimer.sh /path/to/runtime
 loginctl enable-linger "$USER"
+```
+
+The configuration check makes no connections. The installer writes user units without enabling ingestion. It expects the email checkout at `<runtime-root>/rotations-email`.
+
+Before starting Linux ingestion, stop other scheduled writers. Run one collection and inspect its result before enabling the timer.
+
+```sh
 systemctl --user start rotations-production-direct.service
-journalctl --user -u rotations-production-direct.service -n 80 --no-pager
 systemctl --user show rotations-production-direct.service -p Result -p ExecMainStatus
+journalctl --user -u rotations-production-direct.service -n 80 --no-pager
 systemctl --user enable --now rotations-production-direct.timer
 ```
 
-Verify production shops and heartbeat before enabling the timer. Full host reboot
-needs a supervised check. The signed-in session survived supervised client restart.
+The timer runs hourly at `:01 UTC`. The service waits for container readiness, prevents overlapping runs, and allows up to three bounded collection attempts. Ordinary service failures retry after five minutes. Exit 75 preserves a Riot cooldown or manual-review pause until a later scheduled run.
 
-## Public API cache revisions
+## Processing and delivery behavior
 
-Apply `supabase/migrations/20261005000000_add_public_api_state.sql`, `supabase/migrations/20261005010000_add_public_api_catalog_deltas.sql`, and `supabase/migrations/20261005020000_restrict_public_api_publisher.sql` in that order before deploying the ingestion and API changes. Deploy ingestion next and verify that a successful complete pull populates `public_api_state` with a positive `catalog_revision` and initializes `public_api_catalog_item`. Deploy the API after that. All production migration and deployment steps require the owner's explicit approval.
+Every attempt refreshes static metadata before collecting sales. A failed metadata stage stops dependent processing. Collection validates all shop inputs before replacing the saved snapshot. Database writes are per table and can partially succeed, so failed runs must be checked before retrying.
 
-The permission migration explicitly revokes Supabase default client-role execution grants on the private publisher.
+Successful runs publish a fresh completion marker in `data/run/email-pull.json`. The email service consumes each completed run once and records its own status. Failed attempts remove the previous marker. Logs remain in `data/logs` and are uploaded to the Supabase `logs` bucket.
 
-The singleton records `catalog`, `sales`, `mythic`, `sanctum`, and `yourShop` fingerprints, a catalog revision, the last successful check time, and the most recent changed sections. Comparison happens inside Postgres and includes public metadata, prices, dates, active flags, additions, and removals. Identical upserts do not advance fingerprints or the catalog revision. The API compares every fingerprint to its own saved state, so missing a hint or several pulls cannot lose an update.
+Public API publication failure fails a managed run. An HTTP refresh-hint failure leaves the published state available for the API's hourly `:05 UTC` fallback. The API retains its last valid snapshot during refresh failures.
 
-Confirmed catalog changes update only affected rows in `public_api_catalog_item`. Each row contains the public Item JSON and its last changed revision. Deleted items retain their ID and revision with null JSON. Lookup changes update affected item representations. The API reads only changes since its saved revision, applies them to its local catalog, and reuses unchanged rotations. There is one latest row per unique item ID, so repeated pulls do not accumulate history. The publisher briefly locks the five catalog source tables against writes to keep the cache and fingerprint consistent. A failed publication rolls back cache and manifest together. No Edge Function is required.
+## Operations and recovery
 
-Publication happens even if the optional hint URL and secret are unset. Unchanged pulls produce no HTTP hint. A failed hint leaves the manifest available to the API fallback. A publication failure is a warning, and the next successful pull retries publication. Preserve the API data volume because it holds the catalog, confirmed fingerprints, and catalog revision. An initial installation or missing source-state file requires one complete synchronization. An older valid source-state file without a catalog revision requires one catalog synchronization while reusing unchanged rotations. Delta download failures preserve the snapshot and retry without requesting the full catalog.
-
-## Operations
-
-```bash
+```sh
 systemctl --user list-timers rotations-production-direct.timer
-systemctl --user start rotations-production-direct.service
+systemctl --user status rotations-production-email.service
 docker inspect rotations-ingestion-production --format '{{.State.Health.Status}}'
 docker logs --tail 30 rotations-ingestion-production
 ```
 
-Run through the systemd service to retain tunnel isolation and locking. Direct
-host productionRun.mjs execution bypasses network isolation. Docker exec commands
-must specify --user 1000:1000. To update, stop the timer and wait for/stop its active
-service, pull main in the production checkout, npm ci, rebuild using compose,
-reinstall units if needed, verify a manual run, then enable the timer.
+Run ingestion through the systemd service to retain network isolation and locking. Direct host execution of the production runner bypasses the container's network isolation.
 
-## VPS monitoring cutover
+HTTP 429 records a retry deadline in `data/run/riot-pause.json`. HTTP 401 or 403 records a manual-review pause. Resolve the underlying rate limit or sign-in issue before clearing a manual pause. Riot updates, Wine compatibility, and sign-in challenges can require operator intervention.
 
-Only ingestion and monitoring require main updates; frontend, API and email code
-remain compatible. On the VPS, in the existing monitoring checkout:
+For updates, stop the timer, finish or stop the active service, update the checkout and dependencies, rebuild the runtime, and reinstall units if needed. Verify a manual run before enabling the timer again. After a host restart, check Docker, the signed-in client, the timer, and one successful ingestion and email cycle.
 
-```bash
-git pull --ff-only origin main
-cp .env .env.linux
-chmod 600 .env.linux
-printf '\nLINUX_POLL_INTERVAL_MINUTES=30\nHOST=0.0.0.0\nPORT=8080\n' >> .env.linux
-docker compose stop monitor
-docker compose -f docker-compose.linux.yml up -d --build
-curl --fail http://127.0.0.1:8081/status
-```
-
-Confirm heartbeat, linuxRunner, siteUp and freshness. Keep old data/ backups;
-Linux uses data-linux/. Update any old health-check proxy using port 8080 to 8081.
-The Linux entry point has no Pi/WOL checks or wake calls.
-
-## Rollback
-
-Disable/stop rotations-production-direct.timer and stop its active service before
-restoring Windows/Pi jobs. Stop the production runtime if abandoning Linux. On the
-VPS stop the Linux monitor and start the original compose monitor. Preserve DB
-history, Windows scripts and config. The additive status table and deduplicated
-OG trigger remain Windows-compatible. Only one production writer may run.
-
-## Validation
-
-Residential exit-node collection succeeded with 9,458 catalog items, four Mythic
-stores, two Sanctum banners and inactive Your Shop. The actual Riot runtime was
-blocked from direct internet when exit-node selection was removed. A prior
-nonresidential exit returned HTTP 403 on required startup config. Full host reboot
-and an active Your Shop require ongoing operational validation.
-
-
-## Hourly ingestion and low-egress email delivery
-
-Production runs at `*:01:00 UTC`. Each attempt downloads and validates all
-CommunityDragon sources and completes their metadata upserts before collecting
-Riot data or writing sales. A failed metadata stage stops dependent processing;
-there is no daily metadata gate or cached-metadata success fallback. Normal
-bounded retries and Riot cooldowns still apply.
-
-Shop processing logs counts and issues, without before/after active-rotation
-reads. Managed ingestion issue alerts are owned by the monitor, which deduplicates
-status transitions and sends recovery notifications. Public state is published once after metadata and all shop operations
-complete. Publication failure fails the run; an API refresh-hint failure warns
-and is recovered by the API's hourly `:05` check. The next heartbeat is the next
-hourly `:01` boundary.
-
-A successful run atomically publishes a UUID `runId`, `startedAt`, and
-`completedAt` in `data/run/email-pull.json`. Failed attempts remove the prior
-marker. `ExecStartPost` starts the email service; email code accepts only a fresh
-completed marker, records consumption after success, and retains its exclusive
-lock. Private `linux_email_status` reports running/success/failure independently.
-Missing upstream cosmetic metadata is explicitly reported as degraded; known
-sales still process and unknown items retry on the next fresh metadata cycle.
-
-Apply `supabase/migrations/20261008000000_backend_email_batches.sql` and
-`20261008010000_skip_unchanged_ingestion.sql` before
-updating the email worker or monitor. The migration adds service-role-only queue
-and delivery RPCs and a private operational status table. No public access is
-added. Update the VPS monitor's `LINUX_POLL_INTERVAL_MINUTES=60`, and the API's
-`REFRESH_INTERVAL_MINUTES=60`; deploy `/internal/email-data` on the existing
-private ingress along with `/internal/refresh`.
-
-Local checks: `npm test`, `npm run test:linux`, `npm run local:static`,
-`npm run test:local-db`, and `tests/emailBatches.sql` against the isolated local
-Postgres. The email repository's `npm run test:local-db` exercises the real local
-queue, API cache, HTML rendering, and delivery recording using synthetic rows,
-with no SES call. Its cleanup removes only its own fixtures.
-
-## Recovery after host power loss
-
-The user running the production units must have persistent membership in the
-Docker group (`sudo usermod -aG docker zando` on this host). A one-time socket ACL
-does not survive recreation of `/run/docker.sock`. Docker/containerd must be
-enabled at boot, the user must have lingering enabled, and the production timer
-must remain enabled. The existing container uses `restart: unless-stopped`.
-
-The collection unit refreshes Docker group membership with `sg`, waits up to
-three minutes for the container health check (including the signed-in Riot API),
-and retries ordinary failures after five minutes. The total service start limit
-is fifteen minutes, including readiness; the existing collection attempt limits
-remain unchanged. Exit 75 preserves Riot cooldown/manual-review pauses and waits
-for the next hourly timer instead of an immediate service restart. Successful
-collection still triggers the existing email unit exactly as before.
-
-On 2026-10-11 an interrupted Riot self-update was repaired from official manifest
-chunks, including cached update bundles. Every installed manifest chunk was
-verified with Blake3 before restoring the official installation completion
-marker; the saved sign-in was preserved. Backups are outside the checkout under
-the host production backup directory. Riot sign-in challenges and future Wine
-compatibility failures can still require manual intervention. A full host reboot
-requires a supervised verification; container restart alone does not establish
-that all host boot dependencies recover.
+For a return to Windows ingestion, follow [the switching guide](linux-migration.md).
